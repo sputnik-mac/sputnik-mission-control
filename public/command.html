@@ -342,6 +342,18 @@ function initStars() {
   });
 }
 
+// ─── ORBIT RADII — each agent gets its own distance ───────────────────────────
+const ORBIT_RADII = {
+  "main":    0,    // center (Sputnik/Earth)
+  "pioneer": 140,  // closest — active coder
+  "finance": 200,  // mid orbit
+  "health":  260,  // outer orbit
+};
+function getOrbitRadius(agentId, index) {
+  if (ORBIT_RADII[agentId] !== undefined) return ORBIT_RADII[agentId];
+  return 140 + index * 65; // fallback for unknown agents
+}
+
 // ─── ORBIT INIT ───────────────────────────────────────────────────────────────
 function initOrbits(agents) {
   const secondary = agents.filter(a => a.role !== "primary");
@@ -349,7 +361,8 @@ function initOrbits(agents) {
     if (!orbits[a.id]) {
       orbits[a.id] = {
         angle: (i / secondary.length) * Math.PI * 2,
-        baseSpeed: 0.004 + i * 0.0015,
+        baseSpeed: 0.005 - i * 0.0008, // inner = faster, outer = slower
+        radius: getOrbitRadius(a.id, i),
       };
     }
   });
@@ -587,28 +600,57 @@ function render() {
   const wobble = updateHubWobble();
   const CX = cx() + wobble.dx, CY = cy() + wobble.dy;
 
-  // Orbit ring
+  // Draw Earth (Sergey) in center — big glowing planet
+  const earthR = 42;
+  // Outer atmosphere layers
+  [[earthR*2.5, 0.03], [earthR*2.0, 0.05], [earthR*1.5, 0.08]].forEach(([r, a]) => {
+    const eg = ctx.createRadialGradient(CX,CY,0,CX,CY,r);
+    eg.addColorStop(0, `rgba(30,120,255,${a})`); eg.addColorStop(1, 'rgba(30,120,255,0)');
+    ctx.beginPath(); ctx.arc(CX,CY,r,0,Math.PI*2); ctx.fillStyle=eg; ctx.fill();
+  });
+  // Planet body
+  const earthG = ctx.createRadialGradient(CX-10,CY-10,2,CX,CY,earthR);
+  earthG.addColorStop(0,'#4a9eff'); earthG.addColorStop(0.4,'#1a6fd4'); earthG.addColorStop(1,'#0a3d8f');
+  ctx.beginPath(); ctx.arc(CX,CY,earthR,0,Math.PI*2); ctx.fillStyle=earthG; ctx.fill();
+  // Continents
+  ctx.save(); ctx.clip();
+  ctx.fillStyle='rgba(34,140,34,0.65)';
+  [[CX-12,CY-8,16,10],[CX+8,CY+5,12,8],[CX-5,CY+12,9,6]].forEach(([x,y,w,h])=>{
+    ctx.beginPath(); ctx.ellipse(x,y,w,h,0.4,0,Math.PI*2); ctx.fill();
+  });
+  ctx.restore();
+  // Outline glow
+  ctx.beginPath(); ctx.arc(CX,CY,earthR,0,Math.PI*2);
+  ctx.strokeStyle='rgba(74,158,255,0.5)'; ctx.lineWidth=1.5; ctx.stroke();
+  // "You" label
+  ctx.font='bold 10px Inter,system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.fillText('🌍', CX, CY);
+  ctx.font='500 10px Inter,system-ui'; ctx.fillStyle='rgba(255,255,255,0.6)';
+  ctx.fillText('Sergey', CX, CY + earthR + 13);
+
+  // Draw orbit rings at individual radii
   const secondaries = agents.filter(a=>a.role!=="primary");
-  if (secondaries.length) {
-    ctx.beginPath(); ctx.arc(CX, CY, 185, 0, Math.PI*2);
-    ctx.strokeStyle = "rgba(99,102,241,.1)"; ctx.lineWidth = 1;
-    ctx.setLineDash([5,10]); ctx.stroke(); ctx.setLineDash([]);
-  }
+  secondaries.forEach((a, i) => {
+    const r = orbits[a.id]?.radius ?? getOrbitRadius(a.id, i);
+    ctx.beginPath(); ctx.arc(CX, CY, r, 0, Math.PI*2);
+    ctx.strokeStyle = "rgba(99,102,241,.08)"; ctx.lineWidth = 1;
+    ctx.setLineDash([4,12]); ctx.stroke(); ctx.setLineDash([]);
+  });
 
   // Advance orbits
   for (const a of secondaries) {
-    if (!orbits[a.id]) orbits[a.id] = { angle: Math.random()*Math.PI*2, baseSpeed: 0.005 };
+    if (!orbits[a.id]) orbits[a.id] = { angle: Math.random()*Math.PI*2, baseSpeed: 0.005, radius: getOrbitRadius(a.id, 0) };
     const spd = a.status === "thinking" ? orbits[a.id].baseSpeed * 4 : orbits[a.id].baseSpeed;
     orbits[a.id].angle += spd;
   }
 
-  // Compute positions
+  // Compute positions using per-agent orbit radius
   const pos = {};
   for (const a of agents) {
     if (a.role === "primary") pos[a.id] = { x: CX, y: CY };
     else {
-      const o = orbits[a.id] || {angle:0};
-      pos[a.id] = { x: CX + Math.cos(o.angle)*185, y: CY + Math.sin(o.angle)*185 };
+      const o = orbits[a.id] || { angle: 0, radius: 185 };
+      pos[a.id] = { x: CX + Math.cos(o.angle)*o.radius, y: CY + Math.sin(o.angle)*o.radius };
     }
   }
 
@@ -685,10 +727,11 @@ function render() {
     ctx.fillStyle = `rgba(245,158,11,${p.alpha*.8})`; ctx.fill();
   }
 
-  // Draw agents
+  // Draw agents (skip primary — drawn as Earth above)
   for (const a of agents) {
+    if (a.role === "primary") continue; // Earth is drawn separately above
     const p = pos[a.id];
-    drawAgent(p.x, p.y, a, a.role === "primary" ? 36 : 26);
+    drawAgent(p.x, p.y, a, 26);
 
     // Particle bursts for active agents
     if (a.status === "thinking" && a.role !== "primary" && frame % 18 === 0) {
