@@ -19,14 +19,16 @@
     .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
     .dot-on{background:#10b981;box-shadow:0 0 6px #10b981}
     .dot-off{background:#ef4444}
-    .agent-item{cursor:pointer;transition:all .15s;border:1px solid transparent;border-radius:12px;padding:10px 12px}
+    .agent-item{cursor:pointer;transition:all .15s;border:1px solid transparent;border-radius:14px;padding:12px 10px}
     .agent-item:hover{background:rgba(255,255,255,.06)}
     .agent-item.active{background:rgba(99,102,241,.12);border-color:rgba(99,102,241,.3)}
+    .agent-icon{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;transition:all .3s}
+    .agent-icon.working{animation:agentPulse 1.2s ease-in-out infinite;box-shadow:0 0 0 0 rgba(99,102,241,.6)}
+    @keyframes agentPulse{0%{box-shadow:0 0 0 0 rgba(99,102,241,.6);background:rgba(99,102,241,.25)}70%{box-shadow:0 0 0 10px rgba(99,102,241,0)}100%{box-shadow:0 0 0 0 rgba(99,102,241,0);background:rgba(99,102,241,.15)}}
     .tab-btn{padding:6px 14px;border-radius:10px;font-size:13px;font-weight:500;border:1px solid rgba(255,255,255,.08);transition:all .15s;cursor:pointer}
     .tab-btn.on{background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.35);color:white}
     .tab-btn.off{color:rgba(255,255,255,.4)}
-    .sending-pulse{animation:spin 1s linear infinite;display:inline-block}
-    @keyframes spin{to{transform:rotate(360deg)}}
+    .msg-queue{background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.1)}
     textarea{resize:none}textarea:focus{outline:none}
   </style>
 </head>
@@ -179,11 +181,11 @@ async function loadAgents() {
       const lb = agentLabel(a.id);
       return `
       <div class="agent-item ${a.id === activeAgent ? "active" : ""}" id="ag-${a.id}" onclick="selectAgent('${a.id}')">
-        <div class="flex items-center gap-2">
-          <div class="w-7 h-7 rounded-lg bg-indigo-500/15 flex items-center justify-center text-sm flex-shrink-0">${lb.icon}</div>
+        <div class="flex items-center gap-3">
+          <div class="agent-icon bg-indigo-500/15">${lb.icon}</div>
           <div class="min-w-0">
-            <div class="text-sm font-medium text-white truncate">${lb.name}</div>
-            <div class="text-xs text-white/30 truncate">${lb.desc}</div>
+            <div class="text-sm font-semibold text-white truncate">${lb.name}</div>
+            <div class="text-xs text-white/35 truncate mt-0.5">${lb.desc}</div>
           </div>
         </div>
       </div>`;
@@ -191,9 +193,9 @@ async function loadAgents() {
   } catch {
     document.getElementById("agent-sidebar").innerHTML = `
       <div class="agent-item active" id="ag-main" onclick="selectAgent('main')">
-        <div class="flex items-center gap-2">
-          <div class="w-7 h-7 rounded-lg bg-indigo-500/15 flex items-center justify-center text-sm">🛰️</div>
-          <div><div class="text-sm font-medium text-white">Sputnik</div><div class="text-xs text-white/30">Main assistant</div></div>
+        <div class="flex items-center gap-3">
+          <div class="agent-icon bg-indigo-500/15">🛰️</div>
+          <div><div class="text-sm font-semibold text-white">Sputnik</div><div class="text-xs text-white/35 mt-0.5">Main assistant</div></div>
         </div>
       </div>`;
   }
@@ -228,7 +230,7 @@ async function loadCron() {
 }
 
 // Chat
-// Message queue - можно слать пока предыдущее обрабатывается
+// Message queue
 const msgQueue = [];
 let isProcessing = false;
 
@@ -236,39 +238,45 @@ async function sendMsg() {
   const input = document.getElementById("input");
   const text = input.value.trim();
   if (!text) return;
-
   addUser(text);
-  input.value = "";
-  input.style.height = "24px";
-
-  msgQueue.push({ text, agentId: activeAgent, placeholderId: addBotPlaceholder() });
+  input.value = ""; input.style.height = "24px";
+  // Queue item — no placeholder yet, show queue badge instead
+  msgQueue.push({ text, agentId: activeAgent });
   updateQueueBadge();
-
   if (!isProcessing) processQueue();
 }
 
 function updateQueueBadge() {
   const btn = document.getElementById("send-btn");
-  const pending = msgQueue.length;
-  if (isProcessing || pending > 0) {
-    const n = isProcessing ? pending + 1 : pending;
-    btn.innerHTML = `<span class="text-xs font-bold">${n > 1 ? n : "⏳"}</span>`;
-    btn.disabled = false; // allow queuing more
+  const total = msgQueue.length + (isProcessing ? 1 : 0);
+  if (total > 0) {
+    btn.innerHTML = `<span class="text-xs font-bold text-white">${total}</span>`;
   } else {
     btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>';
-    btn.disabled = false;
   }
 }
 
+function setAgentWorking(agentId, working) {
+  const icon = document.querySelector(`#ag-${agentId} .agent-icon`);
+  if (icon) icon.classList.toggle("working", working);
+}
+
 async function processQueue() {
-  if (msgQueue.length === 0) { isProcessing = false; updateQueueBadge(); return; }
+  if (msgQueue.length === 0) {
+    isProcessing = false;
+    updateQueueBadge();
+    setAgentWorking(activeAgent, false);
+    return;
+  }
   isProcessing = true;
+  const job = msgQueue.shift();
   updateQueueBadge();
 
-  const job = msgQueue.shift();
+  // Now show placeholder — only for the active job
+  const placeholderId = addBotPlaceholder(job.agentId, "печатает…");
+  setAgentWorking(job.agentId, true);
 
   try {
-    // Step 1: enqueue (instant, survives network blip)
     const enqRes = await fetchWithRetry("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -276,7 +284,6 @@ async function processQueue() {
     });
     const { jobId } = await enqRes.json();
 
-    // Step 2: poll until done
     let result = null;
     for (let i = 0; i < 120; i++) {
       await sleep(1500);
@@ -285,15 +292,16 @@ async function processQueue() {
         const data = await pollRes.json();
         if (data.status === "done") { result = data.text; break; }
         if (data.status === "error") { result = "⚠️ " + data.error; break; }
-      } catch { /* network blip — retry next poll */ }
+      } catch {}
     }
-    updateBotMsg(job.placeholderId, result ?? "⚠️ Timeout — ответ не получен");
+    updateBotMsg(placeholderId, result ?? "⚠️ Timeout");
   } catch (e) {
-    updateBotMsg(job.placeholderId, "⚠️ " + e.message);
+    updateBotMsg(placeholderId, "⚠️ " + e.message);
   }
 
+  setAgentWorking(job.agentId, false);
   isProcessing = false;
-  processQueue(); // next in queue
+  processQueue();
 }
 
 // Fetch with auto-retry on network errors
@@ -323,14 +331,16 @@ function addUser(text) {
   scroll();
 }
 
-function addBotPlaceholder() {
+function addBotPlaceholder(agentId, statusText) {
+  agentId = agentId || activeAgent;
+  statusText = statusText || "печатает…";
   const id = "bot-" + Date.now();
   const msgs = document.getElementById("messages");
   const d = document.createElement("div");
   d.className = "flex gap-3";
   d.id = id;
-  const agentIcon = agentLabel(activeAgent).icon;
-  d.innerHTML = `<div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">${agentIcon}</div><div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl"><div class="text-xs font-medium text-indigo-400 mb-1">${agentLabel(activeAgent).name}</div><div class="bot-text text-sm text-white/50 italic leading-relaxed">печатает…</div></div>`;
+  const lb = agentLabel(agentId);
+  d.innerHTML = `<div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">${lb.icon}</div><div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl"><div class="text-xs font-medium text-indigo-400 mb-1">${lb.name}</div><div class="bot-text text-sm text-white/50 italic leading-relaxed">${statusText}</div></div>`;
   msgs.appendChild(d);
   scroll();
   return id;
