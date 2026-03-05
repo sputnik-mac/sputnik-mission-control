@@ -57,6 +57,22 @@ async function loadMemories(reset = false) {
 
 function loadMoreMemories() { loadMemories(false); }
 
+async function saveToMemory(btn) {
+  const text = btn.dataset.text;
+  btn.textContent = "⏳";
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/memory/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const d = await r.json();
+    if (d.ok) { btn.textContent = "✅"; showToast("✅ Сохранено в память"); }
+    else { btn.textContent = "❌"; }
+  } catch { btn.textContent = "❌"; }
+}
+
 async function deleteMemory(id) {
   if (!confirm("Удалить эту память?")) return;
   try {

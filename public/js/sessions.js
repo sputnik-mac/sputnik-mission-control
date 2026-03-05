@@ -12,6 +12,7 @@ async function loadSessions() {
                     s.origin === "heartbeat" ? '<span class="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full border border-yellow-500/30">Heartbeat</span>' :
                     s.origin === "cron" ? '<span class="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full border border-green-500/30">Cron</span>' :
                     '<span class="text-xs bg-white/10 text-white/40 px-2 py-0.5 rounded-full">' + s.origin + '</span>';
+      const safeId = encodeURIComponent(s.key).replace(/%/g, '_');
       return `
       <div class="glass rounded-2xl px-4 py-3">
         <div class="flex items-start justify-between gap-3">
@@ -24,15 +25,40 @@ async function loadSessions() {
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
             <div class="text-xs text-white/30">${date}</div>
+            <button onclick="toggleSessionHistory('${encodeURIComponent(s.key)}')"
+              class="text-xs text-white/25 hover:text-indigo-400 transition" title="История">📋</button>
             <button onclick="deleteSession('${encodeURIComponent(s.key)}', '${s.isMain}')"
               class="text-white/20 hover:text-red-400 transition text-sm flex-shrink-0 ${s.isMain ? 'opacity-30 cursor-not-allowed' : ''}"
               ${s.isMain ? 'disabled title="Основная сессия"' : 'title="Удалить сессию"'}>🗑</button>
           </div>
         </div>
+        <div id="sh-${safeId}" class="hidden mt-2 space-y-2 pl-2"></div>
       </div>`;
     }).join("");
   } catch {
     document.getElementById("sessions-list").innerHTML = '<div class="text-red-400/60 text-sm">Ошибка загрузки</div>';
+  }
+}
+
+async function toggleSessionHistory(encodedKey) {
+  const safeId = encodedKey.replace(/%/g, '_');
+  const el = document.getElementById(`sh-${safeId}`);
+  if (!el) return;
+  if (el.classList.contains("hidden")) {
+    el.classList.remove("hidden");
+    el.innerHTML = '<div class="text-white/30 text-xs py-2">Загружаю...</div>';
+    try {
+      const r = await fetch(`/api/sessions/${encodedKey}/history?limit=10`);
+      const msgs = await r.json();
+      if (!msgs.length) { el.innerHTML = '<div class="text-white/30 text-xs py-2">Нет сообщений</div>'; return; }
+      el.innerHTML = msgs.map(m => `
+        <div class="glass rounded-xl px-3 py-2 ${m.role === 'user' ? 'ml-4' : 'mr-4'}">
+          <div class="text-xs text-white/25 mb-1">${m.role === 'user' ? '👤' : '🛰️'}</div>
+          <div class="text-xs text-white/60 leading-relaxed">${esc(String(m.content).slice(0, 200))}${m.content.length > 200 ? '…' : ''}</div>
+        </div>`).join("");
+    } catch { el.innerHTML = '<div class="text-red-400/60 text-xs py-2">Ошибка</div>'; }
+  } else {
+    el.classList.add("hidden");
   }
 }
 

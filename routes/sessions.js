@@ -55,4 +55,22 @@ router.delete("/sessions/:key", (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /api/sessions/:key/history
+router.get("/sessions/:key/history", (req, res) => {
+  const { parseSessionHistory } = require("../lib/history");
+  const key = decodeURIComponent(req.params.key);
+  const limit = parseInt(req.query.limit) || 10;
+  for (const agent of AGENTS) {
+    try {
+      const p = `${OPENCLAW_HOME}/agents/${agent}/sessions/sessions.json`;
+      const data = JSON.parse(fs.readFileSync(p, "utf8"));
+      if (data[key] && data[key].sessionFile) {
+        const messages = parseSessionHistory(data[key].sessionFile, limit);
+        return res.json(messages);
+      }
+    } catch {}
+  }
+  res.json([]);
+});
+
 module.exports = router;

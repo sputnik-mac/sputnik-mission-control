@@ -81,7 +81,16 @@ router.get("/chat/:jobId", (req, res) => {
   res.json(job);
 });
 
+function notifyAgentStatus(agentId, status, task) {
+  try {
+    const cmd = require("./command");
+    cmd.agentState[agentId] = { status, task: task || null, updatedAt: Date.now() };
+    cmd.broadcast("agent_update", { id: agentId, status, task });
+  } catch {}
+}
+
 async function processChat(jobId, message, agentId) {
+  notifyAgentStatus(agentId, "thinking", message.slice(0, 60));
   try {
     const r = await fetch(`${GATEWAY}/v1/chat/completions`, {
       method: "POST",

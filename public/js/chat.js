@@ -113,7 +113,8 @@ function addBotMsg(text, agentId) {
   d.className = "flex gap-3";
   d.id = id;
   const lb = agentLabel(agentId);
-  d.innerHTML = `<div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">${lb.icon}</div><div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl"><div class="text-xs font-medium text-indigo-400 mb-1">${lb.name}</div><div class="bot-content"></div></div>`;
+  const safeText = text.replace(/"/g, '&quot;').slice(0, 500);
+  d.innerHTML = `<div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">${lb.icon}</div><div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl"><div class="text-xs font-medium text-indigo-400 mb-1">${lb.name}</div><div class="bot-content"></div><div class="msg-actions"><button class="save-mem-btn" onclick="saveToMemory(this)" data-text="${safeText}" title="Сохранить в память">⭐</button></div></div>`;
   d.querySelector(".bot-content").innerHTML = renderMarkdown(text);
   msgs.appendChild(d);
   addCopyButtons(d);

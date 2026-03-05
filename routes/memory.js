@@ -113,4 +113,31 @@ router.get("/memories/stats", async (req, res) => {
   }
 });
 
+// POST /api/memory/save
+router.post("/memory/save", async (req, res) => {
+  const { GATEWAY, TOKEN } = require("../config");
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: "text required" });
+  try {
+    const r = await fetch(`${GATEWAY}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+        "x-openclaw-session-key": "telegram:direct:277364372",
+      },
+      body: JSON.stringify({
+        model: "openclaw:main",
+        messages: [{ role: "user", content: `Запомни это: ${text}` }],
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await r.json();
+    res.json({ ok: true, response: data.choices?.[0]?.message?.content?.slice(0, 100) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
