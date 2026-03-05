@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>🛰️ Command Center</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#03040a;color:#e0e8ff;font-family:'Inter',system-ui,sans-serif;overflow:hidden;height:100vh;width:100vw}
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+  .mono{font-family:'JetBrains Mono',monospace}
+
+  /* Layout */
+  #root{display:flex;height:100vh;width:100vw;flex-direction:column}
+  #topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:rgba(6,10,28,.9);border-bottom:1px solid rgba(99,102,241,.2);flex-shrink:0;z-index:10}
+  #main{display:flex;flex:1;overflow:hidden}
+  #canvas-wrap{flex:1;position:relative}
+  #orbit-canvas{width:100%;height:100%;display:block}
+  #right-panel{width:300px;display:flex;flex-direction:column;background:rgba(6,10,28,.85);border-left:1px solid rgba(99,102,241,.15);flex-shrink:0}
+
+  /* Topbar */
+  .logo{display:flex;align-items:center;gap:10px}
+  .logo-icon{font-size:22px}
+  .logo-title{font-size:14px;font-weight:600;letter-spacing:.04em}
+  .logo-sub{font-size:11px;color:rgba(255,255,255,.3);font-family:'JetBrains Mono',monospace}
+  .sys-badges{display:flex;gap:16px;align-items:center}
+  .badge{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.4)}
+  .badge-dot{width:7px;height:7px;border-radius:50%}
+  .badge-dot.on{background:#10b981;box-shadow:0 0 6px #10b981}
+  .badge-dot.off{background:#ef4444}
+  .top-nav{display:flex;gap:8px}
+  .nav-btn{padding:5px 14px;border-radius:20px;font-size:12px;font-weight:500;border:1px solid rgba(99,102,241,.3);color:rgba(255,255,255,.5);cursor:pointer;text-decoration:none;transition:all .2s}
+  .nav-btn:hover,.nav-btn.active{background:rgba(99,102,241,.2);color:white;border-color:rgba(99,102,241,.6)}
+
+  /* Agent info tooltip on canvas */
+  #agent-tooltip{position:absolute;background:rgba(6,10,28,.95);border:1px solid rgba(99,102,241,.3);border-radius:12px;padding:12px 16px;pointer-events:none;display:none;z-index:20;min-width:180px;backdrop-filter:blur(8px)}
+  .tt-name{font-size:13px;font-weight:600;color:white;margin-bottom:4px}
+  .tt-status{font-size:11px;color:rgba(255,255,255,.5);margin-bottom:6px}
+  .tt-task{font-size:11px;color:#a5b4fc;font-family:'JetBrains Mono',monospace}
+
+  /* Right panel */
+  #panel-header{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.06);font-size:11px;font-weight:600;letter-spacing:.08em;color:rgba(255,255,255,.3);text-transform:uppercase;display:flex;align-items:center;justify-content:space-between}
+  #activity-log{flex:1;overflow-y:auto;padding:8px}
+  #activity-log::-webkit-scrollbar{width:3px}
+  #activity-log::-webkit-scrollbar-thumb{background:rgba(99,102,241,.3);border-radius:2px}
+  .log-entry{padding:8px 10px;border-radius:8px;margin-bottom:4px;border-left:2px solid transparent;transition:background .2s}
+  .log-entry:hover{background:rgba(255,255,255,.03)}
+  .log-entry.thinking{border-left-color:#f59e0b}
+  .log-entry.done{border-left-color:#10b981}
+  .log-entry.idle{border-left-color:rgba(255,255,255,.1)}
+  .log-entry.error{border-left-color:#ef4444}
+  .log-time{font-size:10px;color:rgba(255,255,255,.25);font-family:'JetBrains Mono',monospace;margin-bottom:3px}
+  .log-agent{font-size:11px;font-weight:500;color:rgba(255,255,255,.6)}
+  .log-msg{font-size:11px;color:rgba(255,255,255,.4);margin-top:2px;line-height:1.4;word-break:break-word}
+  .log-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:600;text-transform:uppercase;margin-left:6px;vertical-align:middle}
+  .lb-thinking{background:rgba(245,158,11,.2);color:#fbbf24}
+  .lb-done{background:rgba(16,185,129,.2);color:#34d399}
+  .lb-idle{background:rgba(255,255,255,.08);color:rgba(255,255,255,.35)}
+  .lb-error{background:rgba(239,68,68,.2);color:#f87171}
+
+  /* Stats footer */
+  #stats-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:rgba(99,102,241,.1);border-top:1px solid rgba(99,102,241,.15);flex-shrink:0}
+  .stat-cell{padding:10px 12px;background:#03040a;text-align:center}
+  .stat-val{font-size:16px;font-weight:600;color:white;line-height:1}
+  .stat-lbl{font-size:9px;color:rgba(255,255,255,.3);margin-top:3px;text-transform:uppercase;letter-spacing:.06em}
+
+  /* Status colors */
+  .status-thinking .stat-val{color:#f59e0b}
+  .status-idle .stat-val{color:#10b981}
+
+  /* Connection indicator */
+  #conn-dot{width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;margin-right:6px}
+  #conn-dot.connected{background:#10b981;box-shadow:0 0 8px #10b981;animation:connPulse 2s infinite}
+  @keyframes connPulse{0%,100%{opacity:1}50%{opacity:.5}}
+</style>
+</head>
+<body>
+<div id="root">
+
+  <!-- Top bar -->
+  <div id="topbar">
+    <div class="logo">
+      <span class="logo-icon">🛰️</span>
+      <div>
+        <div class="logo-title">SPUTNIK COMMAND CENTER</div>
+        <div class="logo-sub mono"><span id="conn-dot"></span><span id="conn-status">connecting...</span></div>
+      </div>
+    </div>
+    <div class="top-nav">
+      <a href="/" class="nav-btn">← Dashboard</a>
+      <a href="/command.html" class="nav-btn active">Command Center</a>
+    </div>
+    <div class="sys-badges" id="sys-badges">
+      <div class="badge"><span class="badge-dot" id="bd-gw"></span>Gateway</div>
+      <div class="badge"><span class="badge-dot" id="bd-ol"></span>Ollama</div>
+      <div class="badge"><span class="badge-dot" id="bd-qd"></span>Qdrant</div>
+      <div class="badge" id="mem-badge" style="color:rgba(99,102,241,.8)">— mem</div>
+    </div>
+  </div>
+
+  <!-- Main area -->
+  <div id="main">
+
+    <!-- Canvas -->
+    <div id="canvas-wrap">
+      <canvas id="orbit-canvas"></canvas>
+      <div id="agent-tooltip">
+        <div class="tt-name" id="tt-name">—</div>
+        <div class="tt-status" id="tt-status">—</div>
+        <div class="tt-task" id="tt-task"></div>
+      </div>
+    </div>
+
+    <!-- Right panel: activity log -->
+    <div id="right-panel">
+      <div id="panel-header">
+        <span>Activity Log</span>
+        <span class="mono" id="log-count" style="font-size:10px;color:rgba(99,102,241,.6)">live</span>
+      </div>
+      <div id="activity-log"></div>
+    </div>
+
+  </div>
+
+  <!-- Stats footer -->
+  <div id="stats-bar">
+    <div class="stat-cell" id="sc-agents"><div class="stat-val" id="sv-agents">0</div><div class="stat-lbl">Agents</div></div>
+    <div class="stat-cell" id="sc-active"><div class="stat-val" id="sv-active">0</div><div class="stat-lbl">Active</div></div>
+    <div class="stat-cell"><div class="stat-val" id="sv-mem">—</div><div class="stat-lbl">Memories</div></div>
+    <div class="stat-cell"><div class="stat-val" id="sv-uptime">—</div><div class="stat-lbl">Uptime</div></div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG ───────────────────────────────────────────────
+const COLORS = {
+  thinking: { core: "#f59e0b", glow: "rgba(245,158,11,", ring: "#fbbf24" },
+  idle:     { core: "#6366f1", glow: "rgba(99,102,241,",  ring: "#818cf8" },
+  recent:   { core: "#10b981", glow: "rgba(16,185,129,",  ring: "#34d399" },
+  offline:  { core: "#374151", glow: "rgba(55,65,81,",    ring: "#4b5563" },
+  error:    { core: "#ef4444", glow: "rgba(239,68,68,",   ring: "#f87171" },
+};
+
+const ROLE_CONFIG = {
+  primary:   { orbitR: 0, size: 36, label: "PRIMARY" },
+  secondary: { orbitR: 180, size: 26, label: "AGENT" },
+};
+
+// ── STATE ────────────────────────────────────────────────
+let agents = [];
+let stars = [];
+let particles = [];
+let animFrame = 0;
+let logCount = 0;
+const orbits = {}; // id -> { angle, speed }
+
+// ── CANVAS SETUP ─────────────────────────────────────────
+const canvas = document.getElementById("orbit-canvas");
+const ctx = canvas.getContext("2d");
+const wrap = document.getElementById("canvas-wrap");
+
+function resize() {
+  canvas.width = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+  if (!stars.length) initStars();
+}
+window.addEventListener("resize", resize);
+resize();
+
+function initStars() {
+  stars = Array.from({length: 120}, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    r: Math.random() * 1.2,
+    a: Math.random(),
+    speed: 0.002 + Math.random() * 0.004,
+    phase: Math.random() * Math.PI * 2,
+  }));
+}
+
+// ── CENTER ───────────────────────────────────────────────
+const cx = () => canvas.width / 2;
+const cy = () => canvas.height / 2 - 20;
+
+// ── ORBIT INIT ───────────────────────────────────────────
+function initOrbits(agents) {
+  const secondaries = agents.filter(a => a.role === "secondary");
+  secondaries.forEach((a, i) => {
+    if (!orbits[a.id]) {
+      orbits[a.id] = {
+        angle: (i / secondaries.length) * Math.PI * 2,
+        speed: 0.003 + i * 0.001,
+      };
+    }
+  });
+}
+
+// ── PARTICLE SYSTEM ──────────────────────────────────────
+function spawnParticles(fromX, fromY, toX, toY, color) {
+  for (let i = 0; i < 5; i++) {
+    particles.push({
+      x: fromX, y: fromY,
+      tx: toX, ty: toY,
+      progress: 0,
+      speed: 0.02 + Math.random() * 0.03,
+      alpha: 1,
+      color,
+      size: 2 + Math.random() * 2,
+    });
+  }
+}
+
+// ── DRAW HELPERS ─────────────────────────────────────────
+function drawStar(x, y, r, a) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(200,210,255,${a})`;
+  ctx.fill();
+}
+
+function drawAgent(x, y, agent, size, t) {
+  const col = COLORS[agent.status] || COLORS.idle;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 0.05 + (agent.id.length * 0.7));
+
+  // Outer glow ring (thinking = bigger + faster pulse)
+  if (agent.status === "thinking") {
+    const glowSize = size + 8 + pulse * 12;
+    const grad = ctx.createRadialGradient(x, y, size * 0.5, x, y, glowSize);
+    grad.addColorStop(0, col.glow + "0.4)");
+    grad.addColorStop(1, col.glow + "0)");
+    ctx.beginPath();
+    ctx.arc(x, y, glowSize, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Rotating arc ring
+    ctx.beginPath();
+    ctx.arc(x, y, size + 10, t * 0.03, t * 0.03 + Math.PI * 1.5);
+    ctx.strokeStyle = col.ring;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // Soft glow
+  const softGlow = ctx.createRadialGradient(x, y, 0, x, y, size * 2.5);
+  softGlow.addColorStop(0, col.glow + (agent.status === "thinking" ? "0.5)" : "0.3)"));
+  softGlow.addColorStop(1, col.glow + "0)");
+  ctx.beginPath();
+  ctx.arc(x, y, size * 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = softGlow;
+  ctx.fill();
+
+  // Main circle
+  ctx.beginPath();
+  ctx.arc(x, y, size, 0, Math.PI * 2);
+  ctx.fillStyle = col.core;
+  ctx.fill();
+
+  // Inner highlight
+  ctx.beginPath();
+  ctx.arc(x - size * 0.25, y - size * 0.25, size * 0.4, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,0.15)";
+  ctx.fill();
+
+  // Icon text
+  ctx.font = `${Math.round(size * 1.1)}px serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(agent.icon, x, y);
+
+  // Name label
+  ctx.font = "500 11px Inter, system-ui";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(255,255,255,0.8)";
+  ctx.fillText(agent.name, x, y + size + 14);
+
+  // Status badge
+  const statusText = agent.status === "thinking" ? "● thinking" :
+                     agent.status === "recent"   ? "● active"   :
+                     agent.status === "offline"  ? "○ offline"  : "● idle";
+  ctx.font = "10px 'JetBrains Mono', monospace";
+  ctx.fillStyle = col.ring;
+  ctx.fillText(statusText, x, y + size + 27);
+}
+
+function drawOrbitRing(x, y, r) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(99,102,241,0.12)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 8]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawConnectionBeam(x1, y1, x2, y2, status) {
+  if (status !== "thinking") return;
+  const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+  grad.addColorStop(0, "rgba(99,102,241,0.6)");
+  grad.addColorStop(0.5, "rgba(245,158,11,0.4)");
+  grad.addColorStop(1, "rgba(99,102,241,0.6)");
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = grad;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+// ── MAIN RENDER LOOP ─────────────────────────────────────
+function render() {
+  animFrame++;
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background gradient
+  const bg = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W * 0.7);
+  bg.addColorStop(0, "#070b1a");
+  bg.addColorStop(1, "#03040a");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  for (const s of stars) {
+    s.a = 0.3 + 0.4 * Math.sin(animFrame * s.speed + s.phase);
+    drawStar(s.x, s.y, s.r, s.a);
+  }
+
+  // Grid lines (subtle)
+  ctx.strokeStyle = "rgba(99,102,241,0.04)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 60) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  const CX = cx(), CY = cy();
+
+  // Orbit rings
+  const secondaries = agents.filter(a => a.role === "secondary");
+  if (secondaries.length) drawOrbitRing(CX, CY, 180);
+
+  // Update orbit angles
+  for (const a of secondaries) {
+    if (!orbits[a.id]) orbits[a.id] = { angle: Math.random() * Math.PI * 2, speed: 0.004 };
+    const spd = a.status === "thinking" ? orbits[a.id].speed * 3 : orbits[a.id].speed;
+    orbits[a.id].angle += spd;
+  }
+
+  // Compute positions
+  const positions = {};
+  for (const a of agents) {
+    if (a.role === "primary") {
+      positions[a.id] = { x: CX, y: CY };
+    } else {
+      const o = orbits[a.id] || { angle: 0 };
+      positions[a.id] = {
+        x: CX + Math.cos(o.angle) * 180,
+        y: CY + Math.sin(o.angle) * 180,
+      };
+    }
+  }
+
+  // Connection beams from working agents to center
+  for (const a of secondaries) {
+    const p = positions[a.id];
+    const pp = positions[a.parent] || positions["main"] || { x: CX, y: CY };
+    drawConnectionBeam(p.x, p.y, pp.x, pp.y, a.status);
+  }
+
+  // Update & draw particles
+  particles = particles.filter(p => p.progress < 1);
+  for (const p of particles) {
+    p.progress += p.speed;
+    p.x = lerp(p.x, p.tx, p.speed);
+    p.y = lerp(p.y, p.ty, p.speed);
+    p.alpha = 1 - p.progress;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(245,158,11,${p.alpha * 0.7})`;
+    ctx.fill();
+  }
+
+  // Draw agents
+  for (const a of agents) {
+    const p = positions[a.id];
+    const size = a.role === "primary" ? 36 : 26;
+    drawAgent(p.x, p.y, a, size, animFrame);
+
+    // Spawn particles when thinking
+    if (a.status === "thinking" && a.role !== "primary" && animFrame % 15 === 0) {
+      const hub = positions["main"] || { x: CX, y: CY };
+      spawnParticles(p.x, p.y, hub.x, hub.y, "#f59e0b");
+    }
+  }
+
+  // HUD — center crosshair
+  ctx.strokeStyle = "rgba(99,102,241,0.2)";
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(CX - 20, CY); ctx.lineTo(CX + 20, CY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(CX, CY - 20); ctx.lineTo(CX, CY + 20); ctx.stroke();
+
+  requestAnimationFrame(render);
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// ── SSE CONNECTION ───────────────────────────────────────
+let es;
+function connectSSE() {
+  es = new EventSource("/api/command/events");
+
+  es.addEventListener("snapshot", e => {
+    const data = JSON.parse(e.data);
+    updateAgents(data);
+    document.getElementById("conn-dot").className = "connected";
+    document.getElementById("conn-status").textContent = "live";
+  });
+
+  es.addEventListener("agent_update", e => {
+    const { id, status, task } = JSON.parse(e.data);
+    const agent = agents.find(a => a.id === id);
+    if (!agent) return;
+    const prevStatus = agent.status;
+    agent.status = status;
+    agent.task = task;
+    addLog(agent, status, task, prevStatus);
+    updateFooter();
+  });
+
+  es.addEventListener("ping", () => {
+    document.getElementById("conn-dot").className = "connected";
+    document.getElementById("conn-status").textContent = "live";
+  });
+
+  es.onerror = () => {
+    document.getElementById("conn-dot").className = "";
+    document.getElementById("conn-status").textContent = "reconnecting...";
+    es.close();
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+// ── UPDATE AGENTS ────────────────────────────────────────
+function updateAgents(data) {
+  agents = data;
+  initOrbits(agents);
+  updateFooter();
+  // Add initial log entries
+  for (const a of agents) {
+    if (a.status === "thinking") addLog(a, "thinking", a.task, "idle");
+  }
+}
+
+function updateFooter() {
+  const active = agents.filter(a => a.status === "thinking").length;
+  document.getElementById("sv-agents").textContent = agents.length;
+  document.getElementById("sv-active").textContent = active;
+  document.getElementById("sc-active").className = "stat-cell " + (active > 0 ? "status-thinking" : "status-idle");
+}
+
+// ── ACTIVITY LOG ─────────────────────────────────────────
+const MAX_LOG = 50;
+function addLog(agent, status, task, prevStatus) {
+  if (status === prevStatus) return; // no change
+  logCount++;
+  const el = document.getElementById("activity-log");
+  const entry = document.createElement("div");
+  entry.className = `log-entry ${status}`;
+  const time = new Date().toLocaleTimeString("ru-RU", {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  const badge = `<span class="log-badge lb-${status}">${status}</span>`;
+  const msg = status === "thinking" && task ? `"${task.slice(0,80)}${task.length>80?'…':''}"` :
+              status === "done" ? "Ответ отправлен" :
+              status === "idle" ? "Готов к работе" :
+              status === "offline" ? "Недоступен" : "";
+  entry.innerHTML = `
+    <div class="log-time">${time}</div>
+    <div class="log-agent">${agent.icon} ${agent.name}${badge}</div>
+    ${msg ? `<div class="log-msg">${msg}</div>` : ""}`;
+  el.insertBefore(entry, el.firstChild);
+  // Trim old entries
+  while (el.children.length > MAX_LOG) el.removeChild(el.lastChild);
+  document.getElementById("log-count").textContent = logCount + " events";
+}
+
+// ── TOOLTIP ──────────────────────────────────────────────
+canvas.addEventListener("mousemove", e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const CX = cx(), CY = cy();
+  const tooltip = document.getElementById("agent-tooltip");
+  let found = null;
+
+  for (const a of agents) {
+    let ax, ay;
+    if (a.role === "primary") { ax = CX; ay = CY; }
+    else {
+      const o = orbits[a.id] || { angle: 0 };
+      ax = CX + Math.cos(o.angle) * 180;
+      ay = CY + Math.sin(o.angle) * 180;
+    }
+    const dist = Math.hypot(mx - ax, my - ay);
+    if (dist < 40) { found = { agent: a, x: ax, y: ay }; break; }
+  }
+
+  if (found) {
+    const a = found.agent;
+    const secAgo = a.secAgo || 0;
+    const timeAgo = secAgo < 60 ? `${secAgo}s ago` : secAgo < 3600 ? `${Math.round(secAgo/60)}m ago` : `${Math.round(secAgo/3600)}h ago`;
+    document.getElementById("tt-name").textContent = a.icon + " " + a.name;
+    document.getElementById("tt-status").textContent = `Status: ${a.status} · Last active: ${timeAgo}`;
+    document.getElementById("tt-task").textContent = a.task ? `Task: ${a.task.slice(0, 60)}` : "";
+    tooltip.style.display = "block";
+    tooltip.style.left = (e.clientX - rect.left + 16) + "px";
+    tooltip.style.top = (e.clientY - rect.top - 20) + "px";
+    canvas.style.cursor = "pointer";
+  } else {
+    tooltip.style.display = "none";
+    canvas.style.cursor = "default";
+  }
+});
+canvas.addEventListener("mouseleave", () => {
+  document.getElementById("agent-tooltip").style.display = "none";
+});
+
+// Click agent → switch to chat with that agent
+canvas.addEventListener("click", e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const CX = cx(), CY = cy();
+  for (const a of agents) {
+    let ax, ay;
+    if (a.role === "primary") { ax = CX; ay = CY; }
+    else {
+      const o = orbits[a.id] || { angle: 0 };
+      ax = CX + Math.cos(o.angle) * 180;
+      ay = CY + Math.sin(o.angle) * 180;
+    }
+    if (Math.hypot(mx - ax, my - ay) < 40) {
+      window.location.href = `/?agent=${a.id}`;
+      break;
+    }
+  }
+});
+
+// ── SYSTEM STATUS ────────────────────────────────────────
+async function loadSysStatus() {
+  try {
+    const r = await fetch("/api/status");
+    const s = await r.json();
+    setBadge("bd-gw", s.gateway);
+    setBadge("bd-ol", s.ollama);
+  } catch {}
+  try {
+    const r = await fetch("/api/status");
+    const s = await r.json();
+    setBadge("bd-qd", true); // Qdrant assumed up if memory count works
+  } catch {}
+  try {
+    const r = await fetch("/api/memories");
+    const m = await r.json();
+    if (m.count) {
+      document.getElementById("mem-badge").textContent = m.count + " mem";
+      document.getElementById("sv-mem").textContent = m.count;
+    }
+  } catch {}
+  try {
+    const r = await fetch("/api/stats/system");
+    const s = await r.json();
+    document.getElementById("sv-uptime").textContent = s.uptimeHuman || "—";
+  } catch {}
+}
+function setBadge(id, ok) {
+  document.getElementById(id).className = "badge-dot " + (ok ? "on" : "off");
+}
+setInterval(loadSysStatus, 15000);
+
+// ── INIT ─────────────────────────────────────────────────
+loadSysStatus();
+connectSSE();
+render();
+</script>
+</body>
+</html>

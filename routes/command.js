@@ -55,7 +55,8 @@ function buildSnapshot() {
     if (activity.secAgo > 3600) status = "offline";
 
     // Find relevant cron jobs
-    const myCrons = crons.filter(c => c.agentId === a.id || (a.id === "main" && !c.agentId));
+    const cronList = Array.isArray(crons) ? crons : [];
+    const myCrons = cronList.filter(c => c.agentId === a.id || (a.id === "main" && !c.agentId));
 
     return {
       ...a,

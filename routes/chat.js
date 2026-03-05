@@ -118,8 +118,10 @@ async function processChat(jobId, message, agentId) {
     const data = await r.json();
     const text = data.choices?.[0]?.message?.content ?? "";
     jobs.set(jobId, { ...jobs.get(jobId), status: "done", text });
+    notifyAgentStatus(agentId, "idle", null);
   } catch (err) {
     jobs.set(jobId, { ...jobs.get(jobId), status: "error", error: err.message });
+    notifyAgentStatus(agentId, "idle", null);
   }
 }
 
