@@ -85,12 +85,16 @@ function broadcast(event, data) {
   }
 }
 
-// Periodic broadcast every 3s
+// Start session file watcher → real-time activity detection
+const { startWatcher } = require("../lib/session-watcher");
+setImmediate(() => startWatcher(broadcast, agentState));
+
+// Periodic snapshot broadcast every 5s
 setInterval(() => {
   if (sseClients.size > 0) {
     broadcast("snapshot", buildSnapshot());
   }
-}, 3000);
+}, 5000);
 
 // GET /api/command/snapshot — full current state
 router.get("/command/snapshot", (req, res) => {

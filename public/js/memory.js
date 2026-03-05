@@ -3,14 +3,17 @@ let memQuery = "";
 let memSearchTimer = null;
 
 function switchMemTab(t) {
-  ["qdrant","timeline","entities","decisions"].forEach(n => {
+  ["timeline","entities","decisions"].forEach(n => {
     const el = document.getElementById("mem-" + n);
     const btn = document.getElementById("mt-" + n);
     if (el) el.style.display = n === t ? "block" : "none";
     if (btn) btn.className = "mem-tab " + (n === t ? "on" : "off");
   });
-  if (t === "timeline") loadSqliteTab("timeline");
-  if (t === "entities") loadSqliteTab("entities");
+  // hide qdrant panel if still in DOM
+  const qel = document.getElementById("mem-qdrant");
+  if (qel) qel.style.display = "none";
+  if (t === "timeline")  loadSqliteTab("timeline");
+  if (t === "entities")  loadSqliteTab("entities");
   if (t === "decisions") loadSqliteTab("decisions");
 }
 
