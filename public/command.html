@@ -179,6 +179,30 @@ const orbits = {};   // id → { angle, speed }
 const agentPos = {}; // id → { x, y } (updated each frame for tooltip hit test)
 const tickerLines = []; // bottom-left ticker
 
+// ─── COSMIC STATE ────────────────────────────────────────────────────────────
+let globalWarpTarget = 0;   // 0=idle, 1=warp (lerps based on thinking agents)
+let globalWarpCurrent = 0;
+
+// Nebula blobs (slowly drifting)
+const nebulae = [
+  { x: 0.25, y: 0.3, r: 0.35, color: [88, 28, 135], dx: 0.00008, dy: 0.00005 },
+  { x: 0.7,  y: 0.6, r: 0.3,  color: [30, 58, 138], dx: -0.00006, dy: 0.00007 },
+  { x: 0.5,  y: 0.8, r: 0.25, color: [55, 48, 163], dx: 0.00005, dy: -0.00009 },
+];
+
+// Neural web connection state
+const neuralWeb = {};  // "id1:id2" → { pulseProgress, sparkTimer, lastActivity }
+
+// Per-agent planet state
+const planetState = {}; // id → { flareTimer, flareFrame, flareAngle, pulseRadius, pulseAlpha }
+
+// Center hub rotation
+const hubRings = [
+  { angle: 0, tilt: 0.3, speed: 0.003 },
+  { angle: Math.PI * 0.66, tilt: 0.5, speed: -0.005 },
+  { angle: Math.PI * 1.33, tilt: 0.7, speed: 0.004 },
+];
+
 // ─── CANVAS ───────────────────────────────────────────────────────────────────
 const canvas = document.getElementById("orbit-canvas");
 const ctx = canvas.getContext("2d");
@@ -193,13 +217,22 @@ window.addEventListener("resize", resize);
 resize();
 
 function initStars() {
-  stars = Array.from({length:150}, () => ({
-    x: Math.random() * canvas.width,
-    y: Math.random() * canvas.height,
-    r: Math.random() * 1.3,
-    phase: Math.random() * Math.PI * 2,
-    speed: 0.003 + Math.random() * 0.005,
-  }));
+  stars = Array.from({length:150}, () => {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const dx = canvas.width/2 - x;
+    const dy = canvas.height/2 - y;
+    const dist = Math.hypot(dx, dy) || 1;
+    return {
+      x, y,
+      r: Math.random() * 1.3,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.003 + Math.random() * 0.005,
+      vx: (dx / dist) * (0.3 + Math.random() * 0.7),  // toward center
+      vy: (dy / dist) * (0.3 + Math.random() * 0.7),
+      warpProgress: 0,
+    };
+  });
 }
 
 // ─── ORBIT INIT ───────────────────────────────────────────────────────────────
@@ -242,6 +275,28 @@ function drawAgent(x, y, agent, size) {
 
   agentPos[agent.id] = { x, y, size };
 
+  // Init planet state
+  if (!planetState[agent.id]) planetState[agent.id] = {
+    flareTimer: 60 + Math.random() * 60,
+    flareFrame: -1, flareAngle: 0, flareLife: 0,
+    pulseRadius: 0, pulseAlpha: 0,
+  };
+  const ps = planetState[agent.id];
+
+  // ── ATMOSPHERE GLOW (3 concentric halos) ──
+  const atmoLayers = [
+    { mult: 2.2, alpha: 0.03 },
+    { mult: 1.8, alpha: 0.06 },
+    { mult: 1.4, alpha: 0.12 },
+  ];
+  for (const al of atmoLayers) {
+    const ar = size * al.mult;
+    const ag = ctx.createRadialGradient(x, y, size * 0.8, x, y, ar);
+    ag.addColorStop(0, col.glow + (al.alpha + (agent.status === "thinking" ? 0.06 : 0)) + ")");
+    ag.addColorStop(1, col.glow + "0)");
+    ctx.beginPath(); ctx.arc(x, y, ar, 0, Math.PI*2); ctx.fillStyle = ag; ctx.fill();
+  }
+
   // Thinking: spinning arc + bigger glow
   if (agent.status === "thinking") {
     const spin = t * 0.04;
@@ -258,21 +313,83 @@ function drawAgent(x, y, agent, size) {
     ctx.stroke();
   }
 
-  // Outer glow
-  const glowR = size * (agent.status === "thinking" ? 3.5 : 2.5);
-  const grd = ctx.createRadialGradient(x, y, 0, x, y, glowR);
-  const glowA = agent.status === "thinking" ? 0.5 + pulse*0.15 : 0.2;
-  grd.addColorStop(0, col.glow + glowA + ")");
-  grd.addColorStop(1, col.glow + "0)");
-  ctx.beginPath(); ctx.arc(x, y, glowR, 0, Math.PI*2); ctx.fillStyle=grd; ctx.fill();
-
   // Body
   ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI*2);
   ctx.fillStyle = col.core; ctx.fill();
 
+  // Surface texture — dark continent ellipses
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI*2); ctx.clip();
+  const continents = [
+    { ox: -0.3, oy: -0.2, w: 0.4, h: 0.25 },
+    { ox: 0.2, oy: 0.25, w: 0.35, h: 0.2 },
+    { ox: -0.1, oy: 0.4, w: 0.25, h: 0.15 },
+  ];
+  for (const c of continents) {
+    ctx.beginPath();
+    ctx.ellipse(x + c.ox * size, y + c.oy * size, c.w * size, c.h * size, 0.3, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(0,0,0,.15)"; ctx.fill();
+  }
+  ctx.restore();
+
   // Shine
   ctx.beginPath(); ctx.arc(x - size*.28, y - size*.28, size*.38, 0, Math.PI*2);
   ctx.fillStyle = "rgba(255,255,255,.12)"; ctx.fill();
+
+  // ── PLANET RING (tilted ellipse) ──
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(15 * Math.PI / 180);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, size * 1.8, size * 0.3, 0, 0, Math.PI*2);
+  ctx.strokeStyle = agent.status === "thinking"
+    ? col.glow + "0.5)" : col.glow + "0.2)";
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.restore();
+
+  // ── SOLAR FLARE (when thinking) ──
+  if (agent.status === "thinking") {
+    ps.flareTimer--;
+    if (ps.flareTimer <= 0) {
+      ps.flareTimer = 60 + Math.random() * 60;
+      ps.flareFrame = 0;
+      ps.flareAngle = Math.random() * Math.PI * 2;
+      ps.flareLife = 30;
+    }
+    if (ps.flareFrame >= 0 && ps.flareFrame < ps.flareLife) {
+      const progress = ps.flareFrame / ps.flareLife;
+      const fa = ps.flareAngle;
+      const fx = x + Math.cos(fa) * size;
+      const fy = y + Math.sin(fa) * size;
+      const tipDist = size * (1.2 + 1.5 * Math.sin(progress * Math.PI));
+      const tx = x + Math.cos(fa) * tipDist;
+      const ty = y + Math.sin(fa) * tipDist;
+      const cpx = x + Math.cos(fa + 0.4) * tipDist * 0.9;
+      const cpy = y + Math.sin(fa + 0.4) * tipDist * 0.9;
+      const flareAlpha = (1 - progress) * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.quadraticCurveTo(cpx, cpy, tx, ty);
+      ctx.strokeStyle = `rgba(245,158,11,${flareAlpha})`;
+      ctx.lineWidth = 2.5 * (1 - progress);
+      ctx.stroke();
+      ps.flareFrame++;
+    }
+
+    // ── PULSE RING (expanding ring when thinking) ──
+    ps.pulseRadius += (size * 3 - ps.pulseRadius) * 0.03;
+    ps.pulseAlpha = 0.6 * (1 - (ps.pulseRadius - size) / (size * 2));
+    if (ps.pulseAlpha < 0.02) { ps.pulseRadius = size; ps.pulseAlpha = 0.6; }
+    ctx.beginPath(); ctx.arc(x, y, ps.pulseRadius, 0, Math.PI*2);
+    ctx.strokeStyle = col.glow + Math.max(0, ps.pulseAlpha) + ")";
+    ctx.lineWidth = 1.5; ctx.stroke();
+  } else {
+    // Reset pulse when not thinking
+    ps.pulseRadius = size;
+    ps.pulseAlpha = 0;
+    ps.flareFrame = -1;
+  }
 
   // Icon
   ctx.font = `${Math.round(size * 1.05)}px serif`;
@@ -312,9 +429,42 @@ function render() {
   bg.addColorStop(0, "#080c1e"); bg.addColorStop(1, "#03040a");
   ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
 
-  // Stars
+  // Nebula background
+  for (const n of nebulae) {
+    n.x += n.dx; n.y += n.dy;
+    if (n.x < 0.1 || n.x > 0.9) n.dx *= -1;
+    if (n.y < 0.1 || n.y > 0.9) n.dy *= -1;
+    const nx = n.x * W, ny = n.y * H, nr = n.r * Math.max(W, H);
+    const ng = ctx.createRadialGradient(nx, ny, 0, nx, ny, nr);
+    ng.addColorStop(0, `rgba(${n.color[0]},${n.color[1]},${n.color[2]},0.04)`);
+    ng.addColorStop(0.5, `rgba(${n.color[0]},${n.color[1]},${n.color[2]},0.02)`);
+    ng.addColorStop(1, `rgba(${n.color[0]},${n.color[1]},${n.color[2]},0)`);
+    ctx.fillStyle = ng; ctx.fillRect(0, 0, W, H);
+  }
+
+  // Warp drive logic
+  const thinkingCount = agents.filter(a => a.status === "thinking").length;
+  globalWarpTarget = thinkingCount > 0 ? 1 : 0;
+  globalWarpCurrent = lerp(globalWarpCurrent, globalWarpTarget, globalWarpTarget > 0 ? 0.03 : 0.01);
+
+  // Stars with warp streaks
   for (const s of stars) {
+    s.warpProgress = lerp(s.warpProgress, globalWarpCurrent, globalWarpTarget > 0 ? 0.04 : 0.008);
     const a = 0.2 + 0.5 * Math.sin(frame * s.speed + s.phase);
+
+    if (s.warpProgress > 0.02) {
+      // Warp streak
+      const streakLen = s.warpProgress * 25;
+      const endX = s.x + s.vx * streakLen;
+      const endY = s.y + s.vy * streakLen;
+      const sg = ctx.createLinearGradient(s.x, s.y, endX, endY);
+      const blueShift = Math.min(1, s.warpProgress);
+      sg.addColorStop(0, `rgba(${200 - blueShift*60},${215 - blueShift*20},255,${a * 0.3})`);
+      sg.addColorStop(1, `rgba(160,200,255,${a * (0.5 + s.warpProgress * 0.5)})`);
+      ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(endX, endY);
+      ctx.strokeStyle = sg; ctx.lineWidth = s.r * (1 + s.warpProgress); ctx.stroke();
+    }
+    // Always draw the dot
     ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
     ctx.fillStyle = `rgba(200,215,255,${a})`; ctx.fill();
   }
@@ -362,6 +512,57 @@ function render() {
     ctx.strokeStyle=g; ctx.lineWidth=1.5; ctx.stroke();
   }
 
+  // Neural web — connections between ALL agent pairs
+  const allAgentIds = agents.map(a => a.id);
+  for (let i = 0; i < allAgentIds.length; i++) {
+    for (let j = i + 1; j < allAgentIds.length; j++) {
+      const idA = allAgentIds[i], idB = allAgentIds[j];
+      const pA = pos[idA], pB = pos[idB];
+      if (!pA || !pB) continue;
+      const key = idA + ":" + idB;
+      if (!neuralWeb[key]) neuralWeb[key] = { pulseProgress: Math.random(), lastActivity: 0 };
+      const nw = neuralWeb[key];
+
+      const agA = agents.find(a => a.id === idA);
+      const agB = agents.find(a => a.id === idB);
+      const eitherThinking = agA?.status === "thinking" || agB?.status === "thinking";
+
+      if (eitherThinking) nw.lastActivity = frame;
+      const idleTime = frame - nw.lastActivity;
+      const fadeAlpha = eitherThinking ? 0.6 : (idleTime > 600 ? 0.05 : 0.15);
+
+      // Line
+      if (eitherThinking) {
+        ctx.strokeStyle = `rgba(139,92,246,${fadeAlpha})`;
+        ctx.lineWidth = 1.2;
+      } else {
+        ctx.strokeStyle = `rgba(99,102,241,${fadeAlpha})`;
+        ctx.lineWidth = 0.6;
+      }
+      ctx.beginPath(); ctx.moveTo(pA.x, pA.y); ctx.lineTo(pB.x, pB.y); ctx.stroke();
+
+      // Pulse dot traveling along the line
+      nw.pulseProgress = (nw.pulseProgress + (eitherThinking ? 0.012 : 0.005)) % 1;
+      const px = lerp(pA.x, pB.x, nw.pulseProgress);
+      const py = lerp(pA.y, pB.y, nw.pulseProgress);
+      const pulseAlpha = eitherThinking ? 0.8 : 0.2;
+      ctx.beginPath(); ctx.arc(px, py, eitherThinking ? 2.5 : 1.5, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(167,139,250,${pulseAlpha})`; ctx.fill();
+
+      // Synaptic sparks when thinking
+      if (eitherThinking && frame % 3 === 0) {
+        for (let s = 0; s < 3; s++) {
+          const t = Math.random();
+          const sx = lerp(pA.x, pB.x, t) + (Math.random() - 0.5) * 12;
+          const sy = lerp(pA.y, pB.y, t) + (Math.random() - 0.5) * 12;
+          const sa = 0.3 + Math.random() * 0.5;
+          ctx.beginPath(); ctx.arc(sx, sy, 0.8 + Math.random(), 0, Math.PI*2);
+          ctx.fillStyle = `rgba(196,181,253,${sa})`; ctx.fill();
+        }
+      }
+    }
+  }
+
   // Particles
   particles = particles.filter(p => p.progress < 1);
   for (const p of particles) {
@@ -390,6 +591,20 @@ function render() {
         if (sp) spawnParticles(CX, CY, sp.x, sp.y, "#818cf8", 3);
       }
     }
+  }
+
+  // Center Sputnik rotating orbital rings
+  for (const hr of hubRings) {
+    hr.angle += hr.speed;
+    ctx.save();
+    ctx.translate(CX, CY);
+    ctx.rotate(hr.angle);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 50, 50 * hr.tilt, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(99,102,241,${0.08 + 0.04 * Math.sin(frame * 0.02 + hr.tilt * 5)})`;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.restore();
   }
 
   // Center crosshair
