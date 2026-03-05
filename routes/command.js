@@ -42,7 +42,7 @@ function getCronInfo() {
 function buildSnapshot() {
   const agents = [
     { id: "main",         name: "Sputnik",      icon: "🛰️", role: "primary",   parent: null },
-    { id: "github-agent", name: "GitHub Agent", icon: "🐙", role: "secondary", parent: "main" },
+    { id: "github-agent", name: "Pioneer",      icon: "🔭", role: "secondary", parent: "main" },
   ];
 
   const crons = getCronInfo();
