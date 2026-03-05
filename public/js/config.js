@@ -1,6 +1,6 @@
 const AGENT_LABELS = {
   "main": { name: "Sputnik", icon: "🛰️", desc: "Main assistant" },
-  "github-agent": { name: "GitHub Agent", icon: "🐙", desc: "PR & code contributions" },
+  "github-agent": { name: "Pioneer", icon: "🔭", desc: "PR & code contributions" },
   "claude-code": { name: "Claude Code", icon: "💻", desc: "Coding assistant" },
 };
 
