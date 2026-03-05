@@ -7,8 +7,11 @@ const { OPENCLAW_HOME } = require("../config");
 const agentState = global.agentState = global.agentState || {};
 const sseClients = global.sseClients = global.sseClients || new Set();
 
+// Only real configured agents (not CLI tools like claude-code)
+const CONFIGURED_AGENTS = ["main", "github-agent"];
+
 // Initialize agent states
-["main", "github-agent", "claude-code"].forEach(id => {
+CONFIGURED_AGENTS.forEach(id => {
   if (!agentState[id]) agentState[id] = { status: "idle", task: null, updatedAt: Date.now() };
 });
 
@@ -38,9 +41,8 @@ function getCronInfo() {
 // Build full agent snapshot
 function buildSnapshot() {
   const agents = [
-    { id: "main",         name: "Sputnik",       icon: "🛰️", role: "primary",   parent: null },
-    { id: "github-agent", name: "GitHub Agent",  icon: "🐙", role: "secondary", parent: "main" },
-    { id: "claude-code",  name: "Claude Code",   icon: "💻", role: "secondary", parent: "main" },
+    { id: "main",         name: "Sputnik",      icon: "🛰️", role: "primary",   parent: null },
+    { id: "github-agent", name: "GitHub Agent", icon: "🐙", role: "secondary", parent: "main" },
   ];
 
   const crons = getCronInfo();

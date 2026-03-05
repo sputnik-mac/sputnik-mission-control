@@ -49,6 +49,8 @@ function selectAgent(id) {
   const chip = document.getElementById("chip-" + id);
   if (chip) chip.classList.add("active-chip");
   clearChatAndLoadHistory(id);
+  // Notify settings tab to update agent info
+  window.dispatchEvent(new CustomEvent("agentChanged", { detail: { id } }));
 }
 
 function setAgentWorking(agentId, working) {

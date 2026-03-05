@@ -187,3 +187,77 @@ module.exports = { startWatcher };
 - [ ] "Broadcast to all agents" button in Command Center
 - [ ] Agent health score (response time, error rate)
 - [ ] Night mode: dim offline agents more aggressively
+
+---
+
+## Task: Fix agent list — only show real configured agents
+
+**Problem**: `/api/agents` returns `claude-code` which is an OpenClaw CLI tool, not an agent.
+Config `agents.list` contains only: `main`, `github-agent`.
+
+**Fix in `routes/agents.js`**: Read from `~/.openclaw/openclaw.json → agents.list` instead of scanning `~/.openclaw/agents/` directory.
+
+```js
+// routes/agents.js
+const { OPENCLAW_HOME } = require("../config");
+const fs = require("fs");
+router.get("/agents", (req, res) => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(`${OPENCLAW_HOME}/openclaw.json`, "utf8"));
+    const list = cfg.agents?.list || [];
+    res.json(list.map(a => ({ id: a.id, name: a.identity?.name, model: a.model, emoji: a.identity?.emoji })));
+  } catch {
+    res.json([{ id: "main" }]);
+  }
+});
+```
+
+**Fix in `routes/command.js`**: Update AGENTS array to match config:
+```js
+const AGENTS = [
+  { id: "main",         name: "Sputnik",      icon: "🛰️",  role: "primary" },
+  { id: "github-agent", name: "GitHub Agent", icon: "🐙",  role: "secondary", parent: "main" },
+];
+```
+
+---
+
+## Task: Settings tab — show per-agent info when agent is switched
+
+**Problem**: Settings tab always shows agent `main` info regardless of selected agent.
+
+**Fix in `public/js/settings.js`**: 
+- Listen for `agentChanged` event (dispatched by `selectAgent()` in agents.js)
+- Re-render AGENT INFO section with current agent's data
+- Show correct model, workspace path, config for selected agent
+
+**Fix in `routes/status.js`**: Add `GET /api/agents/:id/info` endpoint:
+```js
+router.get("/agents/:id/info", (req, res) => {
+  const cfg = JSON.parse(fs.readFileSync(`${OPENCLAW_HOME}/openclaw.json`));
+  const agent = (cfg.agents?.list || []).find(a => a.id === req.params.id) || {};
+  res.json({
+    id: agent.id || req.params.id,
+    name: agent.identity?.name || agent.id,
+    model: agent.model || cfg.agents?.defaults?.model?.primary || "—",
+    workspace: agent.workspace || cfg.agents?.defaults?.workspace || "—",
+  });
+});
+```
+
+**Fix in `public/js/agents.js`**: After `selectAgent(id)`, dispatch event:
+```js
+window.dispatchEvent(new CustomEvent("agentChanged", { detail: { id } }));
+```
+
+**Fix in `public/js/settings.js`**: Listen and reload agent info:
+```js
+window.addEventListener("agentChanged", e => loadAgentInfo(e.detail.id));
+async function loadAgentInfo(agentId) {
+  const r = await fetch(`/api/agents/${agentId}/info`);
+  const d = await r.json();
+  document.getElementById("si-id").textContent    = d.id;
+  document.getElementById("si-model").textContent = d.model;
+  document.getElementById("si-ws").textContent    = d.workspace;
+}
+```

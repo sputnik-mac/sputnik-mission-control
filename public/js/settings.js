@@ -1,3 +1,22 @@
+// Load agent info for Settings tab
+async function loadAgentInfo(agentId) {
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(agentId)}/info`);
+    const d = await r.json();
+    const idEl = document.getElementById("si-id");
+    const modEl = document.getElementById("si-model");
+    const wsEl  = document.getElementById("si-ws");
+    if (idEl)  idEl.textContent  = d.id   || agentId;
+    if (modEl) modEl.textContent = d.model || "—";
+    if (wsEl)  wsEl.textContent  = (d.workspace || "—").replace(/^\/Users\/[^/]+/, "~");
+  } catch {}
+}
+
+// Re-load settings when agent changes
+window.addEventListener("agentChanged", e => {
+  loadAgentInfo(e.detail.id);
+});
+
 function buildWorkspaceFiles() {
   const el = document.getElementById("workspace-files");
   if (!el) return;
