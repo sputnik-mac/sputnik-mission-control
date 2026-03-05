@@ -9,15 +9,16 @@ const sseClients = global.sseClients = global.sseClients || new Set();
 
 // Agent list loaded dynamically from /api/agents (see getAgentList below)
 let _agentList = [
-  { id: "main",         name: "Sputnik",  icon: "🛰️", role: "primary",   parent: null },
-  { id: "github-agent", name: "Pioneer",  icon: "🔭", role: "secondary", parent: "main" },
+  { id: "main",    name: "Sputnik", icon: "🛰️", role: "primary",   parent: null },
+  { id: "pioneer", name: "Pioneer", icon: "🔭", role: "secondary", parent: "main" },
+  { id: "finance", name: "Vault",   icon: "💰", role: "secondary", parent: "main" },
+  { id: "health",  name: "Doc",     icon: "🏥", role: "secondary", parent: "main" },
 ];
 
 async function getAgentList() {
   try {
     const { GATEWAY, TOKEN } = require("../config");
-    const r = await fetch(`${GATEWAY}/v1/agents`, {
-      headers: { "Authorization": `Bearer ${TOKEN}` },
+    const r = await fetch(`http://localhost:${require("../config").PORT || 3100}/api/agents`, {
       signal: AbortSignal.timeout(3000),
     });
     if (!r.ok) return _agentList;
