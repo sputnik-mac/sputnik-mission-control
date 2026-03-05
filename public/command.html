@@ -678,7 +678,6 @@ function render() {
     const o = orbits[a.id] || { angle: 0, radius: 185 };
     pos[a.id] = { x: CX + Math.cos(o.angle)*o.radius, y: CY + Math.sin(o.angle)*o.radius };
   }
-  }
 
   // Connection beams (thinking agents → hub)
   for (const a of secondaries) {
