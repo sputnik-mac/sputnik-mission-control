@@ -344,10 +344,10 @@ function initStars() {
 
 // ─── ORBIT RADII — each agent gets its own distance ───────────────────────────
 const ORBIT_RADII = {
-  "main":    0,    // center (Sputnik/Earth)
-  "pioneer": 140,  // closest — active coder
-  "finance": 200,  // mid orbit
-  "health":  260,  // outer orbit
+  "main":    75,   // Sputnik orbits close to Earth like a moon 🛰️
+  "pioneer": 155,  // active coder
+  "finance": 215,  // mid orbit
+  "health":  275,  // outer orbit
 };
 function getOrbitRadius(agentId, index) {
   if (ORBIT_RADII[agentId] !== undefined) return ORBIT_RADII[agentId];
@@ -356,12 +356,11 @@ function getOrbitRadius(agentId, index) {
 
 // ─── ORBIT INIT ───────────────────────────────────────────────────────────────
 function initOrbits(agents) {
-  const secondary = agents.filter(a => a.role !== "primary");
-  secondary.forEach((a, i) => {
+  agents.forEach((a, i) => {
     if (!orbits[a.id]) {
       orbits[a.id] = {
-        angle: (i / secondary.length) * Math.PI * 2,
-        baseSpeed: 0.005 - i * 0.0008, // inner = faster, outer = slower
+        angle: (i / agents.length) * Math.PI * 2,
+        baseSpeed: a.id === "main" ? 0.012 : (0.006 - i * 0.0008), // Sputnik fast, others slower
         radius: getOrbitRadius(a.id, i),
       };
     }
@@ -637,21 +636,19 @@ function render() {
     ctx.setLineDash([4,12]); ctx.stroke(); ctx.setLineDash([]);
   });
 
-  // Advance orbits
-  for (const a of secondaries) {
+  // Advance orbits — ALL agents including Sputnik
+  for (const a of agents) {
     if (!orbits[a.id]) orbits[a.id] = { angle: Math.random()*Math.PI*2, baseSpeed: 0.005, radius: getOrbitRadius(a.id, 0) };
-    const spd = a.status === "thinking" ? orbits[a.id].baseSpeed * 4 : orbits[a.id].baseSpeed;
+    const spd = a.status === "thinking" ? orbits[a.id].baseSpeed * 3.5 : orbits[a.id].baseSpeed;
     orbits[a.id].angle += spd;
   }
 
-  // Compute positions using per-agent orbit radius
+  // Compute positions — ALL agents orbit Earth (CX/CY), including Sputnik
   const pos = {};
   for (const a of agents) {
-    if (a.role === "primary") pos[a.id] = { x: CX, y: CY };
-    else {
-      const o = orbits[a.id] || { angle: 0, radius: 185 };
-      pos[a.id] = { x: CX + Math.cos(o.angle)*o.radius, y: CY + Math.sin(o.angle)*o.radius };
-    }
+    const o = orbits[a.id] || { angle: 0, radius: 185 };
+    pos[a.id] = { x: CX + Math.cos(o.angle)*o.radius, y: CY + Math.sin(o.angle)*o.radius };
+  }
   }
 
   // Connection beams (thinking agents → hub)
@@ -729,9 +726,9 @@ function render() {
 
   // Draw agents (skip primary — drawn as Earth above)
   for (const a of agents) {
-    if (a.role === "primary") continue; // Earth is drawn separately above
+    if (a.role === "primary" && a.id === "__earth__") continue; // reserved
     const p = pos[a.id];
-    drawAgent(p.x, p.y, a, 26);
+    drawAgent(p.x, p.y, a, a.id === "main" ? 20 : 26);
 
     // Particle bursts for active agents
     if (a.status === "thinking" && a.role !== "primary" && frame % 18 === 0) {
