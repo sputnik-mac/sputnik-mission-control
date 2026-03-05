@@ -1,14 +1,12 @@
 const express = require("express");
 const http = require("http");
-const { WebSocketServer, WebSocket } = require("ws");
 const path = require("path");
-const fs = require("fs");
 
 const app = express();
 const server = http.createServer(app);
 
-const GATEWAY_URL = "ws://localhost:18789";
-const GATEWAY_TOKEN = "19312506a9cb5d813ce65b2edacf09751d11561111830994";
+const GATEWAY = "http://localhost:18789";
+const TOKEN = "19312506a9cb5d813ce65b2edacf09751d11561111830994";
 const PORT = process.env.PORT || 3100;
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -17,48 +15,37 @@ app.use(express.json());
 // API: status
 app.get("/api/status", async (req, res) => {
   const status = {
-    agent: "Sputnik 🛰️",
+    agent: "Sputnik",
     model: "anthropic/claude-sonnet-4-6",
     gateway: false,
-    qdrant: false,
     ollama: false,
     timestamp: new Date().toISOString(),
   };
 
-  // Check Gateway
+  // Check Gateway via chat completions
   try {
-    await new Promise((resolve, reject) => {
-      const ws = new WebSocket(GATEWAY_URL);
-      ws.on("open", () => { status.gateway = true; ws.close(); resolve(); });
-      ws.on("error", reject);
-      setTimeout(() => reject(new Error("timeout")), 2000);
+    const r = await fetch(`${GATEWAY}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model: "openclaw:main", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
+      signal: AbortSignal.timeout(3000),
     });
-  } catch {}
-
-  // Check Qdrant
-  try {
-    const { default: fetch } = await import("node-fetch").catch(() => ({ default: null }));
-    if (fetch) {
-      const r = await fetch("http://localhost:6333/healthz", { signal: AbortSignal.timeout(2000) });
-      status.qdrant = r.ok;
-    }
+    status.gateway = r.status < 500;
   } catch {}
 
   // Check Ollama
   try {
-    const net = require("net");
-    await new Promise((resolve, reject) => {
-      const sock = net.createConnection(11434, "127.0.0.1");
-      sock.on("connect", () => { status.ollama = true; sock.destroy(); resolve(); });
-      sock.on("error", reject);
-      setTimeout(() => reject(), 2000);
-    });
+    const r = await fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(2000) });
+    status.ollama = r.ok;
   } catch {}
 
   res.json(status);
 });
 
-// API: memories count
+// API: memories count from Qdrant
 app.get("/api/memories", async (req, res) => {
   try {
     const r = await fetch("http://localhost:6333/collections/sputnik-memory", {
@@ -71,71 +58,98 @@ app.get("/api/memories", async (req, res) => {
   }
 });
 
-// WebSocket proxy → Gateway
-const wss = new WebSocketServer({ server, path: "/ws" });
+// API: list agents
+app.get("/api/agents", async (req, res) => {
+  const fs = require("fs");
+  try {
+    const agentsDir = `${process.env.HOME}/.openclaw/agents`;
+    const dirs = fs.readdirSync(agentsDir).filter(d => {
+      try { return fs.statSync(`${agentsDir}/${d}`).isDirectory(); } catch { return false; }
+    });
+    const agents = dirs.map(id => {
+      let soul = "";
+      try { soul = fs.readFileSync(`${agentsDir}/${id}/workspace/SOUL.md`, "utf8").slice(0, 100); } catch {}
+      return { id, soul };
+    });
+    res.json(agents);
+  } catch {
+    res.json([]);
+  }
+});
 
-wss.on("connection", (clientWs) => {
-  console.log("[ws] browser connected");
+// API: cron jobs
+app.get("/api/cron", async (req, res) => {
+  const { execSync } = require("child_process");
+  try {
+    const out = execSync("openclaw cron list --json 2>/dev/null", { timeout: 5000 }).toString();
+    res.json(JSON.parse(out));
+  } catch {
+    res.json([]);
+  }
+});
 
-  const gwWs = new WebSocket(GATEWAY_URL);
-  let gwReady = false;
-  const queue = [];
+// CHAT: streaming proxy to Gateway
+app.post("/api/chat", async (req, res) => {
+  const { message, sessionKey = "main" } = req.body;
+  if (!message) return res.status(400).json({ error: "message required" });
 
-  // Connect to gateway after open
-  gwWs.on("open", () => {
-    gwReady = true;
-    // Send connect frame
-    const connectFrame = {
-      type: "req",
-      method: "connect",
-      id: "connect-" + Date.now(),
-      params: {
-        client: "sputnik-mission-control",
-        auth: { token: GATEWAY_TOKEN },
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  try {
+    const r = await fetch(`${GATEWAY}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+        "x-openclaw-agent-id": "main",
+        "x-openclaw-session-key": sessionKey,
       },
-    };
-    gwWs.send(JSON.stringify(connectFrame));
-    // Flush queued messages
-    queue.forEach((m) => gwWs.send(m));
-    queue.length = 0;
-    console.log("[ws] gateway connected");
-  });
+      body: JSON.stringify({
+        model: "openclaw:main",
+        messages: [{ role: "user", content: message }],
+        stream: true,
+      }),
+    });
 
-  gwWs.on("message", (data) => {
-    if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.send(String(data));
+    if (!r.ok) {
+      const err = await r.text();
+      res.write(`data: ${JSON.stringify({ error: err })}\n\n`);
+      return res.end();
     }
-  });
 
-  gwWs.on("close", (code) => {
-    console.log("[ws] gateway closed", code);
-    if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.close(1011, "gateway closed");
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value);
+      const lines = chunk.split("\n");
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") {
+            res.write("data: [DONE]\n\n");
+            break;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            const text = parsed.choices?.[0]?.delta?.content ?? "";
+            if (text) res.write(`data: ${JSON.stringify({ text })}\n\n`);
+          } catch {}
+        }
+      }
     }
-  });
-
-  gwWs.on("error", (err) => {
-    console.error("[ws] gateway error", err.message);
-    clientWs.close(1011, "gateway error");
-  });
-
-  clientWs.on("message", (data) => {
-    const raw = String(data);
-    if (gwReady) {
-      gwWs.send(raw);
-    } else {
-      queue.push(raw);
-    }
-  });
-
-  clientWs.on("close", () => {
-    console.log("[ws] browser disconnected");
-    gwWs.close();
-  });
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+  }
+  res.end();
 });
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n🛰️  Sputnik Mission Control`);
-  console.log(`   Local:  http://localhost:${PORT}`);
+  console.log(`   Local:     http://localhost:${PORT}`);
   console.log(`   Tailscale: https://sputniks-mac-mini.tailcde006.ts.net:8444\n`);
 });
