@@ -85,6 +85,38 @@ app.get("/api/agents", async (req, res) => {
   } catch { res.json([]); }
 });
 
+// API: sessions
+app.get("/api/sessions", async (req, res) => {
+  const fs = require("fs");
+  const result = [];
+  const agents = ["main", "github-agent", "claude-code"];
+  for (const agent of agents) {
+    try {
+      const p = `${process.env.HOME}/.openclaw/agents/${agent}/sessions/sessions.json`;
+      const data = JSON.parse(fs.readFileSync(p, "utf8"));
+      for (const [key, s] of Object.entries(data)) {
+        // Skip cron run sessions
+        if (key.includes(":run:")) continue;
+        const size = (() => {
+          try { return fs.statSync(s.sessionFile || "").size; } catch { return 0; }
+        })();
+        result.push({
+          key,
+          agent,
+          updatedAt: s.updatedAt,
+          chatType: s.chatType || "direct",
+          origin: s.origin?.provider || s.origin?.label || "unknown",
+          sizeKb: Math.round(size / 1024),
+          isTelegram: key.includes("telegram"),
+          isMain: key === `agent:main:telegram:direct:277364372`,
+        });
+      }
+    } catch {}
+  }
+  result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  res.json(result);
+});
+
 // API: cron
 app.get("/api/cron", async (req, res) => {
   const { execSync } = require("child_process");
@@ -123,11 +155,14 @@ async function processChat(jobId, message, agentId) {
         "Authorization": `Bearer ${TOKEN}`,
         "Content-Type": "application/json",
         "x-openclaw-agent-id": agentId,
+        ...(agentId === "main" ? { "x-openclaw-session-key": "telegram:direct:277364372" } : {}),
       },
       body: JSON.stringify({
         model: `openclaw:${agentId}`,
         messages: [{ role: "user", content: message }],
         stream: false,
+        // Use Telegram session so Mission Control shares context with Telegram
+        ...(agentId === "main" ? { session_key: "telegram:direct:277364372" } : {}),
       }),
       signal: AbortSignal.timeout(120000),
     });
