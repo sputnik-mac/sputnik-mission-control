@@ -311,8 +311,16 @@ app.get("/api/chat/history", async (req, res) => {
   try {
     const sessionsPath = `${process.env.HOME}/.openclaw/agents/${agentId}/sessions/sessions.json`;
     const sessions = JSON.parse(fs.readFileSync(sessionsPath, "utf8"));
-    const sessionKey = `agent:${agentId}:telegram:direct:277364372`;
-    const session = sessions[sessionKey];
+    // Try Telegram session first, then any session with a file
+    const preferredKey = `agent:${agentId}:telegram:direct:277364372`;
+    let session = sessions[preferredKey];
+    if (!session || !session.sessionFile) {
+      // Fallback: find any session for this agent that has a sessionFile and is not cron
+      const fallback = Object.entries(sessions)
+        .filter(([k, s]) => s.sessionFile && !k.includes(":cron:") && !k.includes(":run:"))
+        .sort((a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0))[0];
+      if (fallback) session = fallback[1];
+    }
     if (!session || !session.sessionFile) return res.json([]);
 
     const raw = fs.readFileSync(session.sessionFile, "utf8");
@@ -395,6 +403,32 @@ app.get("/api/cron", async (req, res) => {
 });
 
 // API: trigger cron job manually
+// Workspace file read/write
+const WORKSPACE = `${process.env.HOME}/.openclaw/workspace`;
+const ALLOWED_FILES = ["SOUL.md", "MEMORY.md", "HEARTBEAT.md", "AGENTS.md", "USER.md", "TOOLS.md"];
+
+app.get("/api/workspace/:file", (req, res) => {
+  const fs = require("fs");
+  const name = req.params.file;
+  if (!ALLOWED_FILES.includes(name)) return res.status(403).json({ error: "Not allowed" });
+  try {
+    const content = fs.readFileSync(`${WORKSPACE}/${name}`, "utf8");
+    res.json({ name, content });
+  } catch { res.json({ name, content: "" }); }
+});
+
+app.post("/api/workspace/:file", (req, res) => {
+  const fs = require("fs");
+  const name = req.params.file;
+  if (!ALLOWED_FILES.includes(name)) return res.status(403).json({ error: "Not allowed" });
+  const { content } = req.body;
+  if (typeof content !== "string") return res.status(400).json({ error: "content required" });
+  try {
+    fs.writeFileSync(`${WORKSPACE}/${name}`, content, "utf8");
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/cron/:id/run", (req, res) => {
   const { execSync } = require("child_process");
   try {
