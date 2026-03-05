@@ -98,13 +98,14 @@ async function processChat(jobId, message, agentId) {
         "Authorization": `Bearer ${TOKEN}`,
         "Content-Type": "application/json",
         "x-openclaw-agent-id": agentId,
-        ...(agentId === "main" ? { "x-openclaw-session-key": "telegram:direct:277364372" } : {}),
+        // Share the Telegram session so MC chat has same context as Telegram
+        ...(agentId === "main" ? { "x-openclaw-session-key": "agent:main:telegram:direct:277364372" } : {}),
       },
       body: JSON.stringify({
         model: `openclaw:${agentId}`,
         messages: [{ role: "user", content: message }],
         stream: false,
-        ...(agentId === "main" ? { session_key: "telegram:direct:277364372" } : {}),
+        ...(agentId === "main" ? { session_key: "agent:main:telegram:direct:277364372" } : {}),
       }),
       signal: AbortSignal.timeout(120000),
     });
