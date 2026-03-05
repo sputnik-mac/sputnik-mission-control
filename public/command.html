@@ -654,12 +654,18 @@ function connectSSE() {
 }
 
 function setConnected(on) {
-  const dot  = document.getElementById("live-dot");
-  const lbl  = document.getElementById("conn-status");
-  const dot2 = document.querySelectorAll("#live-dot");
-  dot.style.background = on ? "#10b981" : "#ef4444";
-  dot.style.boxShadow  = on ? "0 0 6px #10b981" : "none";
+  // Update ALL live dots
+  document.querySelectorAll("#live-dot").forEach(d => {
+    d.style.background = on ? "#10b981" : "#ef4444";
+    d.style.boxShadow  = on ? "0 0 6px #10b981" : "none";
+    d.style.animation  = on ? "livePulse 2s infinite" : "none";
+  });
+  // Update topbar label
+  const lbl = document.getElementById("conn-status");
   if (lbl) lbl.textContent = on ? "live" : "reconnecting...";
+  // Update panel header label
+  const lbl2 = document.getElementById("live-label");
+  if (lbl2) lbl2.textContent = on ? "live" : "reconnecting...";
 }
 
 // ─── SNAPSHOT ────────────────────────────────────────────────────────────────
@@ -673,8 +679,8 @@ function onSnapshot(data) {
 // ─── AGENT EVENT (real message) ───────────────────────────────────────────────
 // Frontend noise filter — skip garbage that slips through
 const SKIP_RE = [
-  /^pong\s*[🏓✅]?$/i,
-  /^ping\s*[🏓]?$/i,
+  /^pong/i,
+  /^ping/i,
   /^HEARTBEAT_OK/i,
   /^NO_REPLY$/i,
   /^Conversation info \(untrusted/i,
