@@ -611,8 +611,9 @@ function render() {
   const earthG = ctx.createRadialGradient(CX-10,CY-10,2,CX,CY,earthR);
   earthG.addColorStop(0,'#4a9eff'); earthG.addColorStop(0.4,'#1a6fd4'); earthG.addColorStop(1,'#0a3d8f');
   ctx.beginPath(); ctx.arc(CX,CY,earthR,0,Math.PI*2); ctx.fillStyle=earthG; ctx.fill();
-  // Continents
-  ctx.save(); ctx.clip();
+  // Continents — clip to planet circle
+  ctx.save();
+  ctx.beginPath(); ctx.arc(CX,CY,earthR,0,Math.PI*2); ctx.clip();
   ctx.fillStyle='rgba(34,140,34,0.65)';
   [[CX-12,CY-8,16,10],[CX+8,CY+5,12,8],[CX-5,CY+12,9,6]].forEach(([x,y,w,h])=>{
     ctx.beginPath(); ctx.ellipse(x,y,w,h,0.4,0,Math.PI*2); ctx.fill();
