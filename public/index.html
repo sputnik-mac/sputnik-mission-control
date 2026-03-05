@@ -228,8 +228,11 @@ async function loadCron() {
 }
 
 // Chat
+// Message queue - можно слать пока предыдущее обрабатывается
+const msgQueue = [];
+let isProcessing = false;
+
 async function sendMsg() {
-  if (isSending) return;
   const input = document.getElementById("input");
   const text = input.value.trim();
   if (!text) return;
@@ -237,40 +240,75 @@ async function sendMsg() {
   addUser(text);
   input.value = "";
   input.style.height = "24px";
-  isSending = true;
 
+  msgQueue.push({ text, agentId: activeAgent, placeholderId: addBotPlaceholder() });
+  updateQueueBadge();
+
+  if (!isProcessing) processQueue();
+}
+
+function updateQueueBadge() {
   const btn = document.getElementById("send-btn");
-  btn.innerHTML = '<span class="sending-pulse text-white/60">⏳</span>';
-  btn.disabled = true;
+  const pending = msgQueue.length;
+  if (isProcessing || pending > 0) {
+    const n = isProcessing ? pending + 1 : pending;
+    btn.innerHTML = `<span class="text-xs font-bold">${n > 1 ? n : "⏳"}</span>`;
+    btn.disabled = false; // allow queuing more
+  } else {
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>';
+    btn.disabled = false;
+  }
+}
 
-  const placeholderId = addBotPlaceholder();
+async function processQueue() {
+  if (msgQueue.length === 0) { isProcessing = false; updateQueueBadge(); return; }
+  isProcessing = true;
+  updateQueueBadge();
+
+  const job = msgQueue.shift();
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000);
-    const r = await fetch("/api/chat", {
+    // Step 1: enqueue (instant, survives network blip)
+    const enqRes = await fetchWithRetry("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, agentId: activeAgent }),
-      signal: controller.signal,
+      body: JSON.stringify({ message: job.text, agentId: job.agentId }),
     });
-    clearTimeout(timeout);
-    const raw = await r.text();
-    let data;
-    try { data = JSON.parse(raw); } catch { data = { error: "Invalid response: " + raw.slice(0,100) }; }
-    if (!r.ok || data.error) {
-      updateBotMsg(placeholderId, "⚠️ " + (data.error || `HTTP ${r.status}`));
-    } else {
-      updateBotMsg(placeholderId, data.text || "(пустой ответ)");
+    const { jobId } = await enqRes.json();
+
+    // Step 2: poll until done
+    let result = null;
+    for (let i = 0; i < 120; i++) {
+      await sleep(1500);
+      try {
+        const pollRes = await fetchWithRetry(`/api/chat/${jobId}`);
+        const data = await pollRes.json();
+        if (data.status === "done") { result = data.text; break; }
+        if (data.status === "error") { result = "⚠️ " + data.error; break; }
+      } catch { /* network blip — retry next poll */ }
     }
+    updateBotMsg(job.placeholderId, result ?? "⚠️ Timeout — ответ не получен");
   } catch (e) {
-    updateBotMsg(placeholderId, "⚠️ " + (e.name === "AbortError" ? "Timeout (120s)" : e.message));
+    updateBotMsg(job.placeholderId, "⚠️ " + e.message);
   }
 
-  isSending = false;
-  btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>';
-  btn.disabled = false;
+  isProcessing = false;
+  processQueue(); // next in queue
 }
+
+// Fetch with auto-retry on network errors
+async function fetchWithRetry(url, opts = {}, retries = 5) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fetch(url, { ...opts, signal: AbortSignal.timeout(10000) });
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      await sleep(1000 * (i + 1));
+    }
+  }
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function handleKey(e) {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); }
