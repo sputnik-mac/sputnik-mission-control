@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>🛰️ Sputnik Mission Control</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
     *{font-family:'Inter',sans-serif;box-sizing:border-box}
@@ -30,6 +33,20 @@
     .tab-btn.off{color:rgba(255,255,255,.4)}
     .msg-queue{background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.1)}
     textarea{resize:none}textarea:focus{outline:none}
+    .bot-content { font-size: 14px; line-height: 1.6; color: rgba(255,255,255,.82); }
+    .bot-content p { margin-bottom: 8px; }
+    .bot-content p:last-child { margin-bottom: 0; }
+    .bot-content h1,.bot-content h2,.bot-content h3 { font-weight:600; margin:12px 0 6px; color:white; }
+    .bot-content ul,.bot-content ol { padding-left:18px; margin-bottom:8px; }
+    .bot-content li { margin-bottom:3px; }
+    .bot-content pre { background:rgba(0,0,0,.4); border-radius:10px; padding:14px; overflow-x:auto; margin:8px 0; border:1px solid rgba(255,255,255,.08); }
+    .bot-content code { font-family:'JetBrains Mono',monospace; font-size:12px; }
+    .bot-content :not(pre) > code { background:rgba(255,255,255,.1); padding:2px 6px; border-radius:4px; }
+    .bot-content a { color:#818cf8; text-decoration:underline; }
+    .bot-content blockquote { border-left:3px solid rgba(99,102,241,.4); padding-left:12px; color:rgba(255,255,255,.5); margin:8px 0; }
+    .copy-btn { position:absolute; top:8px; right:8px; background:rgba(255,255,255,.1); border:none; color:rgba(255,255,255,.5); padding:3px 8px; border-radius:5px; font-size:11px; cursor:pointer; font-family:'JetBrains Mono',monospace; transition:all .15s; }
+    .copy-btn:hover { background:rgba(255,255,255,.2); color:white; }
+    .history-sep { text-align:center; color:rgba(255,255,255,.15); font-size:11px; padding:8px 0; letter-spacing:.05em; }
   </style>
 </head>
 <body class="text-white flex flex-col" style="height:100vh">
@@ -136,6 +153,8 @@
 </div>
 
 <script>
+marked.setOptions({ breaks: true, gfm: true });
+
 let activeAgent = "main";
 let isSending = false;
 
@@ -402,21 +421,90 @@ function addBotPlaceholder(agentId, statusText) {
   return id;
 }
 
+function renderMarkdown(text) {
+  return marked.parse(text || "");
+}
+
+function addCopyButtons(container) {
+  container.querySelectorAll("pre code").forEach(block => {
+    const pre = block.parentElement;
+    if (pre.querySelector(".copy-btn")) return;
+    const btn = document.createElement("button");
+    btn.className = "copy-btn";
+    btn.textContent = "copy";
+    btn.onclick = () => {
+      navigator.clipboard.writeText(block.textContent);
+      btn.textContent = "✓";
+      setTimeout(() => btn.textContent = "copy", 2000);
+    };
+    pre.style.position = "relative";
+    pre.appendChild(btn);
+  });
+}
+
+function addBotMsg(text, agentId) {
+  agentId = agentId || activeAgent;
+  const id = "bot-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+  const msgs = document.getElementById("messages");
+  const d = document.createElement("div");
+  d.className = "flex gap-3";
+  d.id = id;
+  const lb = agentLabel(agentId);
+  d.innerHTML = `<div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">${lb.icon}</div><div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl"><div class="text-xs font-medium text-indigo-400 mb-1">${lb.name}</div><div class="bot-content"></div></div>`;
+  d.querySelector(".bot-content").innerHTML = renderMarkdown(text);
+  msgs.appendChild(d);
+  addCopyButtons(d);
+  if (window.hljs) hljs.highlightAll();
+  scroll();
+  return id;
+}
+
 function updateBotMsg(id, text) {
   const el = document.getElementById(id);
-  if (el) {
-    el.querySelector(".bot-text").className = "bot-text text-sm text-white/80 leading-relaxed whitespace-pre-wrap";
-    el.querySelector(".bot-text").textContent = text;
-  }
+  if (!el) return;
+  const contentEl = el.querySelector(".bot-text");
+  contentEl.className = "bot-content";
+  contentEl.innerHTML = renderMarkdown(text);
+  addCopyButtons(el);
+  if (window.hljs) hljs.highlightAll();
   scroll();
 }
 
 function scroll() { const m = document.getElementById("messages"); m.scrollTop = m.scrollHeight; }
 function esc(t) { return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
+// Chat history on load
+async function loadChatHistory() {
+  const msgs = document.getElementById("messages");
+  try {
+    const r = await fetch("/api/chat/history?agentId=main&limit=30");
+    const history = await r.json();
+    if (!Array.isArray(history) || history.length === 0) return;
+    // Clear welcome message
+    msgs.innerHTML = "";
+    for (const msg of history) {
+      if (msg.role === "user") {
+        addUser(msg.content);
+      } else if (msg.role === "assistant") {
+        addBotMsg(msg.content, "main");
+      }
+    }
+    // Separator after history
+    const sep = document.createElement("div");
+    sep.className = "history-sep";
+    sep.textContent = "── история загружена ──";
+    msgs.appendChild(sep);
+    scroll();
+  } catch (e) {
+    console.warn("[history] failed:", e.message);
+    // Keep welcome message as-is
+  }
+}
+
 // Init
 loadStatus();
 loadAgents();
+loadChatHistory();
 setInterval(loadStatus, 30000);
 </script>
 </body>

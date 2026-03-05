@@ -117,6 +117,48 @@ app.get("/api/sessions", async (req, res) => {
   res.json(result);
 });
 
+// API: chat history
+app.get("/api/chat/history", async (req, res) => {
+  const fs = require("fs");
+  const agentId = req.query.agentId || "main";
+  const limit = parseInt(req.query.limit) || 30;
+  try {
+    const sessionsPath = `${process.env.HOME}/.openclaw/agents/${agentId}/sessions/sessions.json`;
+    const sessions = JSON.parse(fs.readFileSync(sessionsPath, "utf8"));
+    const sessionKey = `agent:${agentId}:telegram:direct:277364372`;
+    const session = sessions[sessionKey];
+    if (!session || !session.sessionFile) return res.json([]);
+
+    const raw = fs.readFileSync(session.sessionFile, "utf8");
+    const lines = raw.split("\n").filter(l => l.trim());
+    const messages = [];
+    for (const line of lines) {
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (entry.type === "compaction") continue;
+      // Messages are nested: { type: "message", message: { role, content } }
+      const msg = entry.message || entry;
+      if (msg.role !== "user" && msg.role !== "assistant") continue;
+      let content = "";
+      if (typeof msg.content === "string") {
+        content = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        content = msg.content
+          .filter(b => b && b.type === "text")
+          .map(b => b.text || "")
+          .join("\n");
+      }
+      if (!content.trim()) continue;
+      messages.push({ role: msg.role, content });
+    }
+    // Return last `limit` messages
+    res.json(messages.slice(-limit));
+  } catch (e) {
+    console.error("[history]", e.message);
+    res.json([]);
+  }
+});
+
 // API: cron
 app.get("/api/cron", async (req, res) => {
   const { execSync } = require("child_process");
