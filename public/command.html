@@ -152,8 +152,19 @@
       <div id="popup-msgs" style="flex:1;overflow-y:auto;padding:12px;space-y:8px;font-size:12px">
         <div style="text-align:center;color:rgba(255,255,255,.25);padding:20px">Загружаю...</div>
       </div>
-      <div style="padding:10px 18px;border-top:1px solid rgba(255,255,255,.06);display:flex;gap:8px">
-        <a id="popup-open-chat" href="#" style="font-size:11px;color:rgba(99,102,241,.7);text-decoration:none">💬 Открыть чат →</a>
+      <div style="padding:10px 14px;border-top:1px solid rgba(255,255,255,.06)">
+        <div style="display:flex;gap:8px;align-items:center">
+          <textarea id="popup-input" rows="1" placeholder="Напиши агенту..."
+            style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(99,102,241,.2);border-radius:10px;padding:8px 12px;color:white;font-size:12px;resize:none;outline:none;font-family:inherit;line-height:1.4"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendToAgent()}"
+            oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>
+          <button onclick="sendToAgent()" id="popup-send-btn"
+            style="width:34px;height:34px;border-radius:10px;background:#6366f1;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s"
+            onmouseover="this.style.background='#818cf8'" onmouseout="this.style.background='#6366f1'">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>
+          </button>
+        </div>
+        <div style="margin-top:6px"><a id="popup-open-chat" href="#" style="font-size:10px;color:rgba(99,102,241,.5);text-decoration:none">↗ Открыть полный чат</a></div>
       </div>
     </div>
   </div>
@@ -1057,7 +1068,43 @@ function setBadge(id, ok) {
 }
 
 // ─── AGENT POPUP ─────────────────────────────────────────────────────────────
+let currentPopupAgentId = null;
+
+async function sendToAgent() {
+  const input = document.getElementById("popup-input");
+  const text = input.value.trim();
+  if (!text || !currentPopupAgentId) return;
+  const btn = document.getElementById("popup-send-btn");
+  btn.disabled = true; btn.style.opacity = "0.4";
+  input.value = ""; input.style.height = "auto";
+  // Optimistic: add user msg to popup
+  const msgs = document.getElementById("popup-msgs");
+  const el = document.createElement("div");
+  el.style.cssText = "margin-bottom:8px;padding:8px 10px;border-radius:10px;background:rgba(99,102,241,.12);border-left:2px solid rgba(99,102,241,.5)";
+  el.innerHTML = `<div style="font-size:9px;color:rgba(255,255,255,.25);margin-bottom:3px">👤 Serhii</div><div style="font-size:11px;color:rgba(255,255,255,.7)">${esc(text)}</div>`;
+  msgs.appendChild(el); msgs.scrollTop = msgs.scrollHeight;
+  // Send via chat API
+  try {
+    const r = await fetch("/api/chat", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ message: text, agentId: currentPopupAgentId }) });
+    const { jobId } = await r.json();
+    // Poll for response
+    const replyEl = document.createElement("div");
+    replyEl.style.cssText = "margin-bottom:8px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border-left:2px solid rgba(16,185,129,.3)";
+    const agent = agents.find(a=>a.id===currentPopupAgentId);
+    replyEl.innerHTML = `<div style="font-size:9px;color:rgba(255,255,255,.25);margin-bottom:3px">${agent?.icon||"🤖"} ${agent?.name||currentPopupAgentId}</div><div style="font-size:11px;color:rgba(255,255,255,.5);font-style:italic">печатает…</div>`;
+    msgs.appendChild(replyEl); msgs.scrollTop = msgs.scrollHeight;
+    for (let i = 0; i < 80; i++) {
+      await new Promise(r=>setTimeout(r,1500));
+      const d = await fetch(`/api/chat/${jobId}`).then(r=>r.json());
+      if (d.status === "done") { replyEl.querySelector("div:last-child").innerHTML = esc(d.text||""); replyEl.querySelector("div:last-child").style.cssText="font-size:11px;color:rgba(255,255,255,.65);line-height:1.5;font-style:normal"; break; }
+      if (d.status === "error") { replyEl.querySelector("div:last-child").textContent = "⚠️ " + d.error; break; }
+    }
+  } catch(e) { el.innerHTML += `<div style="color:red;font-size:10px">${e.message}</div>`; }
+  btn.disabled = false; btn.style.opacity = "1";
+}
+
 async function openAgentPopup(agentId) {
+  currentPopupAgentId = agentId;
   const agent = agents.find(a => a.id === agentId);
   if (!agent) return;
   const popup = document.getElementById("agent-popup");
