@@ -188,6 +188,7 @@ let eventCount = 0;
 let frame = 0;
 const orbits = {};   // id → { angle, speed }
 const agentPos = {}; // id → { x, y } (updated each frame for tooltip hit test)
+let pos = {};        // current agent positions (updated each render frame, used by SSE handlers)
 const tickerLines = []; // bottom-left ticker
 
 // ─── COSMIC STATE ────────────────────────────────────────────────────────────
@@ -673,7 +674,7 @@ function render() {
   }
 
   // Compute positions — ALL agents orbit Earth (CX/CY), including Sputnik
-  const pos = {};
+  pos = {};
   for (const a of agents) {
     const o = orbits[a.id] || { angle: 0, radius: 185 };
     pos[a.id] = { x: CX + Math.cos(o.angle)*o.radius, y: CY + Math.sin(o.angle)*o.radius };
