@@ -1159,6 +1159,61 @@ setConnected(false);
 loadSys();
 setInterval(loadSys, 20000);
 connectSSE();
+
+// ─── NIGHT MODE / DEEP SPACE ──────────────────────────────────────────────────
+let lastActivityTime = Date.now();
+let nightModeActive = false;
+let nightModeAlpha = 0; // 0 = normal, 1 = full night mode
+const NIGHT_IDLE_THRESHOLD = 5 * 60 * 1000; // 5 min
+
+// Track activity
+function touchActivity() { lastActivityTime = Date.now(); }
+document.addEventListener("mousemove", touchActivity);
+document.addEventListener("keydown", touchActivity);
+
+// Night mode is blended in render loop based on nightModeAlpha
+// Injected into render() via the existing frame loop
+const _origRender = render;
+function render() {
+  // Check night mode
+  const idleSec = Date.now() - lastActivityTime;
+  const anyThinking = agents.some(a => a.status === "thinking");
+  if (anyThinking) touchActivity();
+  const shouldNight = idleSec > NIGHT_IDLE_THRESHOLD && !anyThinking;
+  nightModeAlpha = lerp(nightModeAlpha, shouldNight ? 1 : 0, 0.005);
+  nightModeActive = nightModeAlpha > 0.05;
+  _origRender();
+  // Night mode overlay
+  if (nightModeActive) {
+    // Deep purple vignette
+    const W = canvas.width, H = canvas.height;
+    const vg = ctx.createRadialGradient(W/2,H/2,H*0.2, W/2,H/2,H*0.9);
+    vg.addColorStop(0, `rgba(10,5,30,0)`);
+    vg.addColorStop(1, `rgba(5,2,20,${nightModeAlpha * 0.4})`);
+    ctx.fillStyle = vg; ctx.fillRect(0,0,W,H);
+    // Night mode label
+    if (nightModeAlpha > 0.5) {
+      ctx.font = "10px 'JetBrains Mono', monospace";
+      ctx.fillStyle = `rgba(99,102,241,${(nightModeAlpha-0.5)*0.6})`;
+      ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+      ctx.fillText("🌙 deep space", W - 20, H - 20);
+    }
+    // Activity rings around planets — glowing history halos
+    for (const a of agents) {
+      if (a.role === "primary") continue;
+      const p = pos[a.id]; if (!p) continue;
+      const col = STATUS_COLOR[a.status] || STATUS_COLOR.idle;
+      const t = frame * 0.008;
+      for (let ring = 0; ring < 3; ring++) {
+        const ringR = 32 + ring * 14 + Math.sin(t + ring * 1.2) * 4;
+        const alpha = nightModeAlpha * (0.12 - ring * 0.03);
+        ctx.beginPath(); ctx.arc(p.x, p.y, ringR, 0, Math.PI*2);
+        ctx.strokeStyle = col.glow + alpha + ")";
+        ctx.lineWidth = 1; ctx.stroke();
+      }
+    }
+  }
+}
 render();
 </script>
 </body>
