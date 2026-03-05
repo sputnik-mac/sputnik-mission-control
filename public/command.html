@@ -196,6 +196,23 @@ const neuralWeb = {};  // "id1:id2" → { pulseProgress, sparkTimer, lastActivit
 // Per-agent planet state
 const planetState = {}; // id → { flareTimer, flareFrame, flareAngle, pulseRadius, pulseAlpha }
 
+// ─── ORBIT TRAILS ─────────────────────────────────────────────────────────────
+const orbitTrails = {}; // agentId → [{x,y}]
+
+// ─── SHOOTING MESSAGES ────────────────────────────────────────────────────────
+const shootingMessages = [];
+
+function spawnShootingMessage(agentId, role) {
+  const p = pos[agentId];
+  const CX = cx(), CY = cy();
+  if (!p) return;
+  const isToAgent = (role === "user");
+  const sx = isToAgent ? CX : p.x, sy = isToAgent ? CY : p.y;
+  const tx = isToAgent ? p.x : CX,  ty = isToAgent ? p.y : CY;
+  const color = role === "user" ? [96,165,250] : role === "tool" ? [251,191,36] : [52,211,153];
+  shootingMessages.push({ sx, sy, tx, ty, x: sx, y: sy, progress: 0, speed: 0.025, color, trail: [] });
+}
+
 // ─── ASTEROIDS ────────────────────────────────────────────────────────────────
 const asteroids = [];
 let asteroidTimer = 0;
@@ -725,6 +742,52 @@ function render() {
     ctx.fillStyle = `rgba(245,158,11,${p.alpha*.8})`; ctx.fill();
   }
 
+  // ── Orbit trails (comet tails) ──
+  for (const a of agents) {
+    if (a.role === "primary") continue;
+    const p = pos[a.id]; if (!p) continue;
+    if (!orbitTrails[a.id]) orbitTrails[a.id] = [];
+    orbitTrails[a.id].push({x: p.x, y: p.y});
+    if (orbitTrails[a.id].length > 50) orbitTrails[a.id].shift();
+    const trail = orbitTrails[a.id];
+    if (trail.length > 1) {
+      const col = STATUS_COLOR[a.status] || STATUS_COLOR.idle;
+      for (let i = 1; i < trail.length; i++) {
+        const t = i / trail.length;
+        ctx.beginPath();
+        ctx.moveTo(trail[i-1].x, trail[i-1].y);
+        ctx.lineTo(trail[i].x, trail[i].y);
+        ctx.strokeStyle = col.glow + (t * 0.35) + ")";
+        ctx.lineWidth = t * 2.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // ── Shooting messages ──
+  for (let i = shootingMessages.length - 1; i >= 0; i--) {
+    const m = shootingMessages[i];
+    m.progress = Math.min(1, m.progress + m.speed);
+    m.x = lerp(m.sx, m.tx, m.progress);
+    m.y = lerp(m.sy, m.ty, m.progress);
+    m.trail.push({x: m.x, y: m.y});
+    if (m.trail.length > 12) m.trail.shift();
+    if (m.progress >= 1) { shootingMessages.splice(i, 1); continue; }
+    // Trail
+    for (let j = 1; j < m.trail.length; j++) {
+      const a = (j / m.trail.length) * 0.55;
+      ctx.beginPath(); ctx.moveTo(m.trail[j-1].x, m.trail[j-1].y); ctx.lineTo(m.trail[j].x, m.trail[j].y);
+      ctx.strokeStyle = `rgba(${m.color},${a})`; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    // Head glow
+    const [r,g,b] = m.color;
+    const glow = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, 10);
+    glow.addColorStop(0, `rgba(${r},${g},${b},0.9)`); glow.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.beginPath(); ctx.arc(m.x, m.y, 10, 0, Math.PI*2); ctx.fillStyle = glow; ctx.fill();
+    ctx.beginPath(); ctx.arc(m.x, m.y, 3, 0, Math.PI*2);
+    ctx.fillStyle = `rgb(${r},${g},${b})`; ctx.fill();
+  }
+
   // Draw agents (skip primary — drawn as Earth above)
   for (const a of agents) {
     if (a.role === "primary" && a.id === "__earth__") continue; // reserved
@@ -869,6 +932,9 @@ function onAgentEvent(ev) {
   }
 
   addLog({ type: role, icon, name, text: text || null, tool: tool || null, toolIcon: toolIcon || null, desc: desc || null, ts: ev.ts || new Date().toISOString() });
+
+  // Shooting star: fly from Earth → agent (user msg) or agent → Earth (reply)
+  spawnShootingMessage(id, role);
 }
 
 // ─── ACTIVITY LOG ────────────────────────────────────────────────────────────
