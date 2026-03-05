@@ -1,8 +1,6 @@
-const AGENT_LABELS = {
-  "main": { name: "Sputnik", icon: "🛰️", desc: "Main assistant" },
-  "github-agent": { name: "Pioneer", icon: "🔭", desc: "PR & code contributions" },
-  "claude-code": { name: "Claude Code", icon: "💻", desc: "Coding assistant" },
-};
+// Agent labels are loaded dynamically from /api/agents — see agents.js
+// This map is populated at runtime, not hardcoded
+const AGENT_LABELS = {};
 
 const WS_FILES = [
   { name: "SOUL.md",      desc: "Identity & personality",  emoji: "🧠" },

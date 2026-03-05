@@ -10,6 +10,16 @@ async function loadAgents() {
   try {
     const r = await fetch("/api/agents");
     const agents = await r.json();
+
+    // Populate AGENT_LABELS dynamically from gateway data
+    for (const a of agents) {
+      AGENT_LABELS[a.id] = {
+        name: a.name || a.id,
+        icon: a.emoji || "🤖",
+        desc: a.model ? `model: ${a.model.split("/").pop()}` : "agent",
+      };
+    }
+
     const el = document.getElementById("agent-sidebar");
     const all = agents.length ? agents : [{ id: "main" }];
     if (!all.find(a => a.id === "main")) all.unshift({ id: "main" });

@@ -7,13 +7,45 @@ const { OPENCLAW_HOME } = require("../config");
 const agentState = global.agentState = global.agentState || {};
 const sseClients = global.sseClients = global.sseClients || new Set();
 
-// Only real configured agents (not CLI tools like claude-code)
-const CONFIGURED_AGENTS = ["main", "github-agent"];
+// Agent list loaded dynamically from /api/agents (see getAgentList below)
+let _agentList = [
+  { id: "main",         name: "Sputnik",  icon: "🛰️", role: "primary",   parent: null },
+  { id: "github-agent", name: "Pioneer",  icon: "🔭", role: "secondary", parent: "main" },
+];
 
-// Initialize agent states
-CONFIGURED_AGENTS.forEach(id => {
-  if (!agentState[id]) agentState[id] = { status: "idle", task: null, updatedAt: Date.now() };
+async function getAgentList() {
+  try {
+    const { GATEWAY, TOKEN } = require("../config");
+    const r = await fetch(`${GATEWAY}/v1/agents`, {
+      headers: { "Authorization": `Bearer ${TOKEN}` },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!r.ok) return _agentList;
+    const agents = await r.json();
+    _agentList = agents.map((a, i) => ({
+      id: a.id,
+      name: a.name || a.id,
+      icon: a.emoji || "🤖",
+      role: i === 0 ? "primary" : "secondary",
+      parent: i === 0 ? null : "main",
+    }));
+    // Init state for new agents
+    for (const a of _agentList) {
+      if (!agentState[a.id]) agentState[a.id] = { status: "idle", task: null, updatedAt: Date.now() };
+    }
+    return _agentList;
+  } catch {
+    return _agentList;
+  }
+}
+
+// Initialize known agent states
+_agentList.forEach(a => {
+  if (!agentState[a.id]) agentState[a.id] = { status: "idle", task: null, updatedAt: Date.now() };
 });
+
+// Refresh agent list every 60s
+setInterval(getAgentList, 60_000);
 
 // Read session last activity
 function getAgentActivity(agentId) {
@@ -40,10 +72,7 @@ function getCronInfo() {
 
 // Build full agent snapshot
 function buildSnapshot() {
-  const agents = [
-    { id: "main",         name: "Sputnik",      icon: "🛰️", role: "primary",   parent: null },
-    { id: "github-agent", name: "Pioneer",      icon: "🔭", role: "secondary", parent: "main" },
-  ];
+  const agents = _agentList;
 
   const crons = getCronInfo();
 
@@ -54,7 +83,8 @@ function buildSnapshot() {
     // Auto-detect: if session updated < 30s ago and state is idle, mark as recent
     let status = state.status;
     if (status === "idle" && activity.secAgo < 30) status = "recent";
-    if (activity.secAgo > 3600) status = "offline";
+    // Only mark offline if not actively thinking/working
+    if (status !== "thinking" && activity.secAgo > 3600) status = "offline";
 
     // Find relevant cron jobs
     const cronList = Array.isArray(crons) ? crons : [];
