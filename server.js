@@ -88,14 +88,10 @@ app.get("/api/cron", async (req, res) => {
   }
 });
 
-// CHAT: streaming proxy to Gateway
+// CHAT: simple JSON (no streaming — works reliably over Tailscale)
 app.post("/api/chat", async (req, res) => {
-  const { message, sessionKey = "main" } = req.body;
+  const { message, agentId = "main", sessionKey } = req.body;
   if (!message) return res.status(400).json({ error: "message required" });
-
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
 
   try {
     const r = await fetch(`${GATEWAY}/v1/chat/completions`, {
@@ -103,49 +99,27 @@ app.post("/api/chat", async (req, res) => {
       headers: {
         "Authorization": `Bearer ${TOKEN}`,
         "Content-Type": "application/json",
-        "x-openclaw-agent-id": "main",
-        "x-openclaw-session-key": sessionKey,
+        "x-openclaw-agent-id": agentId,
+        ...(sessionKey ? { "x-openclaw-session-key": sessionKey } : {}),
       },
       body: JSON.stringify({
-        model: "openclaw:main",
+        model: `openclaw:${agentId}`,
         messages: [{ role: "user", content: message }],
-        stream: true,
+        stream: false,
       }),
     });
 
     if (!r.ok) {
       const err = await r.text();
-      res.write(`data: ${JSON.stringify({ error: err })}\n\n`);
-      return res.end();
+      return res.status(502).json({ error: `Gateway error ${r.status}: ${err.slice(0, 200)}` });
     }
 
-    const reader = r.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value);
-      const lines = chunk.split("\n");
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") {
-            res.write("data: [DONE]\n\n");
-            break;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            const text = parsed.choices?.[0]?.delta?.content ?? "";
-            if (text) res.write(`data: ${JSON.stringify({ text })}\n\n`);
-          } catch {}
-        }
-      }
-    }
+    const data = await r.json();
+    const text = data.choices?.[0]?.message?.content ?? "";
+    res.json({ text });
   } catch (err) {
-    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+    res.status(502).json({ error: err.message });
   }
-  res.end();
 });
 
 server.listen(PORT, "0.0.0.0", () => {

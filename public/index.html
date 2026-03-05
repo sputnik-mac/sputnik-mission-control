@@ -7,281 +7,293 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-    *{font-family:'Inter',sans-serif}
+    *{font-family:'Inter',sans-serif;box-sizing:border-box}
     .mono{font-family:'JetBrains Mono',monospace}
-    body{background:#0a0a0f}
+    body{background:#0a0a0f;height:100vh;overflow:hidden}
     .glass{background:rgba(255,255,255,.04);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.08)}
     .msg-user{background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.25)}
     .msg-bot{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+    #messages{overflow-y:auto;scroll-behavior:smooth}
     #messages::-webkit-scrollbar{width:4px}
     #messages::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
     .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
     .dot-on{background:#10b981;box-shadow:0 0 6px #10b981}
     .dot-off{background:#ef4444}
-    .typing span{animation:blink 1.2s infinite;display:inline-block}
-    .typing span:nth-child(2){animation-delay:.2s}
-    .typing span:nth-child(3){animation-delay:.4s}
-    @keyframes blink{0%,100%{opacity:.2}50%{opacity:1}}
-    .tab-active{background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.4)!important;color:white}
-    .tab-inactive{color:rgba(255,255,255,.4)}
-    textarea{resize:none}
-    textarea:focus{outline:none}
-    .agent-card:hover{background:rgba(255,255,255,.06)}
+    .agent-item{cursor:pointer;transition:all .15s;border:1px solid transparent;border-radius:12px;padding:10px 12px}
+    .agent-item:hover{background:rgba(255,255,255,.06)}
+    .agent-item.active{background:rgba(99,102,241,.12);border-color:rgba(99,102,241,.3)}
+    .tab-btn{padding:6px 14px;border-radius:10px;font-size:13px;font-weight:500;border:1px solid rgba(255,255,255,.08);transition:all .15s;cursor:pointer}
+    .tab-btn.on{background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.35);color:white}
+    .tab-btn.off{color:rgba(255,255,255,.4)}
+    .sending-pulse{animation:spin 1s linear infinite;display:inline-block}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    textarea{resize:none}textarea:focus{outline:none}
   </style>
 </head>
-<body class="min-h-screen text-white flex flex-col">
+<body class="text-white flex flex-col" style="height:100vh">
 
 <!-- Header -->
-<header class="glass border-b border-white/8 px-6 py-3 flex items-center justify-between flex-shrink-0">
+<header class="glass border-b border-white/8 px-5 py-3 flex items-center justify-between flex-shrink-0">
   <div class="flex items-center gap-3">
     <span class="text-xl">🛰️</span>
     <div>
-      <h1 class="text-base font-semibold">Sputnik Mission Control</h1>
+      <h1 class="text-sm font-semibold leading-tight">Sputnik Mission Control</h1>
       <p class="text-xs text-white/30 mono" id="model-label">claude-sonnet-4-6</p>
     </div>
   </div>
   <div class="flex items-center gap-5 text-xs">
     <div class="flex items-center gap-1.5"><span class="dot" id="d-gw"></span><span class="text-white/40">Gateway</span></div>
     <div class="flex items-center gap-1.5"><span class="dot" id="d-ol"></span><span class="text-white/40">Ollama</span></div>
-    <span class="text-white/20 mono" id="mem-count"></span>
+    <span class="text-white/20 mono text-xs" id="mem-count"></span>
   </div>
 </header>
 
 <!-- Tabs -->
-<div class="flex gap-1 px-6 pt-4 pb-0 flex-shrink-0">
-  <button onclick="switchTab('chat')" id="tab-chat" class="tab-active px-4 py-2 rounded-xl text-sm font-medium border border-white/10 transition-all">💬 Chat</button>
-  <button onclick="switchTab('agents')" id="tab-agents" class="tab-inactive px-4 py-2 rounded-xl text-sm font-medium border border-white/10 transition-all">🤖 Agents</button>
-  <button onclick="switchTab('settings')" id="tab-settings" class="tab-inactive px-4 py-2 rounded-xl text-sm font-medium border border-white/10 transition-all">⚙️ Settings</button>
+<div class="flex gap-1 px-5 pt-3 pb-0 flex-shrink-0">
+  <button class="tab-btn on" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
+  <button class="tab-btn off" id="tab-settings" onclick="switchTab('settings')">⚙️ Settings</button>
 </div>
 
-<!-- CHAT TAB -->
-<div id="view-chat" class="flex-1 flex flex-col overflow-hidden mt-4">
-  <div id="messages" class="flex-1 overflow-y-auto px-6 pb-4 space-y-4">
-    <div class="flex gap-3">
-      <div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">🛰️</div>
-      <div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl">
-        <div class="text-xs font-medium text-indigo-400 mb-1">Sputnik</div>
-        <div class="text-sm text-white/80 leading-relaxed">Привет! Mission Control онлайн. Чем могу помочь?</div>
-      </div>
-    </div>
-  </div>
-  <div id="typing-row" class="hidden px-6 pb-2">
-    <div class="flex gap-3">
-      <div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm">🛰️</div>
-      <div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3">
-        <div class="typing text-white/40 text-sm"><span>●</span><span>●</span><span>●</span></div>
-      </div>
-    </div>
-  </div>
-  <div class="px-6 pb-6 pt-2 flex-shrink-0">
-    <div class="glass rounded-2xl flex items-end gap-3 px-4 py-3" style="box-shadow:0 0 20px rgba(99,102,241,.1)">
-      <textarea id="input" rows="1" placeholder="Напиши сообщение..." class="flex-1 bg-transparent text-sm text-white placeholder-white/25 leading-relaxed" style="max-height:120px;min-height:24px" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="handleKey(event)"></textarea>
-      <button onclick="sendMsg()" class="w-9 h-9 rounded-xl bg-indigo-500 hover:bg-indigo-400 transition flex-shrink-0 flex items-center justify-center">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>
-      </button>
-    </div>
-    <p class="text-xs text-white/15 text-center mt-2">Enter — отправить · Shift+Enter — новая строка</p>
-  </div>
-</div>
+<!-- CHAT VIEW -->
+<div id="view-chat" class="flex flex-1 overflow-hidden mt-3" style="min-height:0">
 
-<!-- AGENTS TAB -->
-<div id="view-agents" class="hidden flex-1 overflow-y-auto px-6 py-4">
-  <div class="mb-4">
-    <h2 class="text-sm font-semibold text-white/60 uppercase tracking-wider">Активные агенты</h2>
+  <!-- Left sidebar: agents -->
+  <div class="flex-shrink-0 w-52 flex flex-col px-3 pb-3 gap-1 overflow-y-auto" style="border-right:1px solid rgba(255,255,255,.06)">
+    <div class="text-xs font-semibold text-white/30 uppercase tracking-wider px-1 py-2">Агенты</div>
+    <div id="agent-sidebar" class="space-y-1">
+      <!-- filled by JS -->
+    </div>
   </div>
-  <div id="agents-list" class="space-y-3">
-    <div class="text-white/30 text-sm">Загружаю...</div>
+
+  <!-- Chat main area -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <div id="messages" class="flex-1 px-5 py-4 space-y-4" style="overflow-y:auto">
+      <div class="flex gap-3">
+        <div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">🛰️</div>
+        <div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl">
+          <div class="text-xs font-medium text-indigo-400 mb-1">Sputnik</div>
+          <div class="text-sm text-white/80 leading-relaxed">Привет! Выбери агента слева и пиши сообщение.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="px-5 pb-5 pt-2 flex-shrink-0">
+      <div class="glass rounded-2xl flex items-end gap-3 px-4 py-3" style="box-shadow:0 0 20px rgba(99,102,241,.08)">
+        <textarea id="input" rows="1" placeholder="Напиши сообщение..." class="flex-1 bg-transparent text-sm text-white placeholder-white/25 leading-relaxed" style="max-height:120px;min-height:24px" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="handleKey(event)"></textarea>
+        <button id="send-btn" onclick="sendMsg()" class="w-9 h-9 rounded-xl bg-indigo-500 hover:bg-indigo-400 transition flex-shrink-0 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>
+        </button>
+      </div>
+      <p class="text-xs text-white/15 text-center mt-1.5">Enter — отправить · Shift+Enter — новая строка · Агент: <span id="active-agent-label" class="text-indigo-400/60">main</span></p>
+    </div>
   </div>
 </div>
 
-<!-- SETTINGS TAB -->
-<div id="view-settings" class="hidden flex-1 overflow-y-auto px-6 py-4">
-  <div class="max-w-2xl space-y-6">
+<!-- SETTINGS VIEW -->
+<div id="view-settings" class="hidden flex-1 overflow-y-auto px-5 py-4">
+  <div class="max-w-xl space-y-5">
     <div>
-      <h2 class="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3">Agent Settings</h2>
-      <div class="glass rounded-2xl p-4 space-y-4">
-        <div>
-          <label class="text-xs text-white/40 block mb-1">Agent ID</label>
-          <div class="mono text-sm text-white/70 bg-white/5 rounded-lg px-3 py-2">main</div>
-        </div>
-        <div>
-          <label class="text-xs text-white/40 block mb-1">Model</label>
-          <div class="mono text-sm text-white/70 bg-white/5 rounded-lg px-3 py-2" id="s-model">—</div>
-        </div>
-        <div>
-          <label class="text-xs text-white/40 block mb-1">Gateway URL</label>
-          <div class="mono text-sm text-white/70 bg-white/5 rounded-lg px-3 py-2">ws://localhost:18789</div>
-        </div>
-        <div>
-          <label class="text-xs text-white/40 block mb-1">Memory</label>
-          <div class="mono text-sm text-white/70 bg-white/5 rounded-lg px-3 py-2" id="s-memory">—</div>
-        </div>
+      <h2 class="text-xs font-semibold text-white/30 uppercase tracking-wider mb-3">Agent Info</h2>
+      <div class="glass rounded-2xl p-4 space-y-3">
+        <row class="flex justify-between text-sm"><span class="text-white/40">Agent ID</span><span class="mono text-white/70">main</span></row>
+        <row class="flex justify-between text-sm"><span class="text-white/40">Model</span><span class="mono text-white/70" id="s-model">—</span></row>
+        <row class="flex justify-between text-sm"><span class="text-white/40">Gateway</span><span class="mono text-white/70">localhost:18789</span></row>
+        <row class="flex justify-between text-sm"><span class="text-white/40">Memories</span><span class="mono text-white/70" id="s-mem">—</span></row>
       </div>
     </div>
     <div>
-      <h2 class="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3">Workspace Files</h2>
-      <div class="glass rounded-2xl p-4">
-        <div class="space-y-2 text-sm">
-          <a href="#" class="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-white/5 transition" onclick="return false">
-            <span class="text-white/70">SOUL.md</span><span class="text-xs text-white/30">Identity</span>
-          </a>
-          <a href="#" class="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-white/5 transition" onclick="return false">
-            <span class="text-white/70">MEMORY.md</span><span class="text-xs text-white/30">Long-term memory</span>
-          </a>
-          <a href="#" class="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-white/5 transition" onclick="return false">
-            <span class="text-white/70">HEARTBEAT.md</span><span class="text-xs text-white/30">Scheduled tasks</span>
-          </a>
-          <a href="#" class="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-white/5 transition" onclick="return false">
-            <span class="text-white/70">AGENTS.md</span><span class="text-xs text-white/30">Agent rules</span>
-          </a>
-        </div>
+      <h2 class="text-xs font-semibold text-white/30 uppercase tracking-wider mb-3">Workspace Files</h2>
+      <div class="glass rounded-2xl divide-y divide-white/5">
+        <div class="flex justify-between items-center px-4 py-3 text-sm"><span class="text-white/70">SOUL.md</span><span class="text-xs text-white/25">Identity & personality</span></div>
+        <div class="flex justify-between items-center px-4 py-3 text-sm"><span class="text-white/70">MEMORY.md</span><span class="text-xs text-white/25">Long-term memory</span></div>
+        <div class="flex justify-between items-center px-4 py-3 text-sm"><span class="text-white/70">HEARTBEAT.md</span><span class="text-xs text-white/25">Periodic tasks</span></div>
+        <div class="flex justify-between items-center px-4 py-3 text-sm"><span class="text-white/70">AGENTS.md</span><span class="text-xs text-white/25">Workspace rules</span></div>
+        <div class="flex justify-between items-center px-4 py-3 text-sm"><span class="text-white/70">USER.md</span><span class="text-xs text-white/25">User profile</span></div>
       </div>
     </div>
     <div>
-      <h2 class="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3">Cron Jobs</h2>
-      <div id="cron-list" class="glass rounded-2xl p-4">
-        <div class="text-white/30 text-sm">Загружаю...</div>
-      </div>
+      <h2 class="text-xs font-semibold text-white/30 uppercase tracking-wider mb-3">Cron Jobs</h2>
+      <div class="glass rounded-2xl p-4" id="cron-list"><span class="text-white/30 text-sm">Загружаю...</span></div>
     </div>
   </div>
 </div>
 
 <script>
+let activeAgent = "main";
+let isSending = false;
+
 // Status
-async function loadStatus(){
-  try{
-    const r=await fetch("/api/status");
-    const s=await r.json();
-    dot("d-gw",s.gateway);
-    dot("d-ol",s.ollama);
-    document.getElementById("s-model").textContent=s.model;
-    document.getElementById("model-label").textContent=s.model.split("/").pop();
-  }catch{}
-  try{
-    const r=await fetch("/api/memories");
-    const m=await r.json();
-    const el=document.getElementById("mem-count");
-    el.textContent=m.count>0?`${m.count} memories`:"";
-    document.getElementById("s-memory").textContent=`${m.count} points · Qdrant sputnik-memory`;
-  }catch{}
+async function loadStatus() {
+  try {
+    const r = await fetch("/api/status");
+    const s = await r.json();
+    setDot("d-gw", s.gateway);
+    setDot("d-ol", s.ollama);
+    document.getElementById("s-model").textContent = s.model;
+    document.getElementById("model-label").textContent = s.model.split("/").pop();
+  } catch {}
+  try {
+    const r = await fetch("/api/memories");
+    const m = await r.json();
+    if (m.count > 0) {
+      document.getElementById("mem-count").textContent = m.count + " memories";
+      document.getElementById("s-mem").textContent = m.count + " points · sputnik-memory";
+    }
+  } catch {}
 }
-function dot(id,ok){
-  const el=document.getElementById(id);
-  el.className="dot "+(ok?"dot-on":"dot-off");
+function setDot(id, ok) {
+  document.getElementById(id).className = "dot " + (ok ? "dot-on" : "dot-off");
 }
 
 // Tabs
-function switchTab(t){
-  ["chat","agents","settings"].forEach(n=>{
-    document.getElementById("view-"+n).className=(n===t?"flex flex-col":"hidden")+(n==="chat"?" flex-1 flex flex-col overflow-hidden mt-4":" flex-1 overflow-y-auto px-6 py-4");
-    const btn=document.getElementById("tab-"+n);
-    btn.className=(n===t?"tab-active":"tab-inactive")+" px-4 py-2 rounded-xl text-sm font-medium border border-white/10 transition-all";
-  });
-  if(t==="agents") loadAgents();
-  if(t==="settings") loadCron();
+function switchTab(t) {
+  document.getElementById("view-chat").className = (t === "chat" ? "flex" : "hidden") + " flex-1 overflow-hidden mt-3";
+  document.getElementById("view-settings").style.display = t === "settings" ? "block" : "none";
+  document.getElementById("tab-chat").className = "tab-btn " + (t === "chat" ? "on" : "off");
+  document.getElementById("tab-settings").className = "tab-btn " + (t === "settings" ? "on" : "off");
+  if (t === "settings") loadCron();
 }
 
-// Agents
-async function loadAgents(){
-  try{
-    const r=await fetch("/api/agents");
-    const agents=await r.json();
-    const el=document.getElementById("agents-list");
-    if(!agents.length){el.innerHTML='<div class="text-white/30 text-sm">Нет агентов</div>';return;}
-    el.innerHTML=agents.map(a=>`
-      <div class="glass agent-card rounded-2xl p-4 transition cursor-pointer">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center text-lg">🤖</div>
-          <div>
-            <div class="font-medium text-white">${a.id}</div>
-            <div class="text-xs text-white/40 mt-0.5">${a.soul||"No description"}</div>
+// Agents sidebar
+async function loadAgents() {
+  try {
+    const r = await fetch("/api/agents");
+    const agents = await r.json();
+    const el = document.getElementById("agent-sidebar");
+    // Always include "main"
+    const all = agents.length ? agents : [{ id: "main", soul: "Primary agent" }];
+    if (!all.find(a => a.id === "main")) all.unshift({ id: "main", soul: "Primary agent" });
+    el.innerHTML = all.map(a => `
+      <div class="agent-item ${a.id === activeAgent ? "active" : ""}" id="ag-${a.id}" onclick="selectAgent('${a.id}')">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-indigo-500/15 flex items-center justify-center text-xs flex-shrink-0">${a.id === "main" ? "🛰️" : "🤖"}</div>
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-white truncate">${a.id}</div>
+            <div class="text-xs text-white/30 truncate">${a.soul ? a.soul.replace(/[#*]/g,"").slice(0,30) : "agent"}</div>
           </div>
-          <div class="ml-auto flex items-center gap-1.5"><span class="dot dot-on"></span><span class="text-xs text-white/30">Active</span></div>
         </div>
       </div>`).join("");
-  }catch{document.getElementById("agents-list").innerHTML='<div class="text-red-400/60 text-sm">Ошибка загрузки</div>';}
+  } catch {
+    document.getElementById("agent-sidebar").innerHTML = `
+      <div class="agent-item active" id="ag-main" onclick="selectAgent('main')">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-indigo-500/15 flex items-center justify-center text-xs">🛰️</div>
+          <div><div class="text-sm font-medium text-white">main</div><div class="text-xs text-white/30">Primary</div></div>
+        </div>
+      </div>`;
+  }
+}
+
+function selectAgent(id) {
+  activeAgent = id;
+  document.querySelectorAll(".agent-item").forEach(el => el.classList.remove("active"));
+  const el = document.getElementById("ag-" + id);
+  if (el) el.classList.add("active");
+  document.getElementById("active-agent-label").textContent = id;
 }
 
 // Cron
-async function loadCron(){
-  try{
-    const r=await fetch("/api/cron");
-    const jobs=await r.json();
-    const el=document.getElementById("cron-list");
-    if(!jobs.length){el.innerHTML='<div class="text-white/30 text-sm">Нет задач</div>';return;}
-    el.innerHTML=`<div class="space-y-2">`+jobs.slice(0,8).map(j=>`
-      <div class="flex items-center justify-between py-1">
-        <span class="text-sm text-white/70">${j.name||j.id}</span>
-        <span class="text-xs mono text-white/30">${j.schedule||j.cron||""}</span>
-      </div>`).join("")+`</div>`;
-  }catch{document.getElementById("cron-list").innerHTML='<div class="text-white/30 text-sm">Недоступно</div>';}
+async function loadCron() {
+  try {
+    const r = await fetch("/api/cron");
+    const jobs = await r.json();
+    const el = document.getElementById("cron-list");
+    if (!Array.isArray(jobs) || !jobs.length) {
+      el.innerHTML = '<span class="text-white/30 text-sm">Нет задач</span>';
+      return;
+    }
+    el.innerHTML = '<div class="space-y-2">' + jobs.slice(0, 10).map(j => `
+      <div class="flex justify-between items-center py-1">
+        <span class="text-sm text-white/70">${j.name || j.id || "—"}</span>
+        <span class="mono text-xs text-white/25">${j.schedule || j.cron || ""}</span>
+      </div>`).join("") + "</div>";
+  } catch {
+    document.getElementById("cron-list").innerHTML = '<span class="text-white/30 text-sm">Недоступно</span>';
+  }
 }
 
 // Chat
-let currentBotEl=null, currentText="", isStreaming=false;
+async function sendMsg() {
+  if (isSending) return;
+  const input = document.getElementById("input");
+  const text = input.value.trim();
+  if (!text) return;
 
-async function sendMsg(){
-  const input=document.getElementById("input");
-  const text=input.value.trim();
-  if(!text||isStreaming)return;
   addUser(text);
-  input.value="";input.style.height="24px";
-  showTyping(true);
-  isStreaming=true;
-  try{
-    const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:text})});
-    showTyping(false);
-    if(!r.ok){addBot("⚠️ Ошибка: "+r.status);isStreaming=false;return;}
-    const reader=r.body.getReader();
-    const dec=new TextDecoder();
-    let buf="";
-    while(true){
-      const{done,value}=await reader.read();
-      if(done)break;
-      buf+=dec.decode(value);
-      const lines=buf.split("\n");
-      buf=lines.pop();
-      for(const line of lines){
-        if(!line.startsWith("data: "))continue;
-        const d=line.slice(6).trim();
-        if(d==="[DONE]"){finishBot();break;}
-        try{const p=JSON.parse(d);if(p.text)appendBot(p.text);if(p.error){appendBot("\n⚠️ "+p.error);finishBot();}}catch{}
-      }
+  input.value = "";
+  input.style.height = "24px";
+  isSending = true;
+
+  const btn = document.getElementById("send-btn");
+  btn.innerHTML = '<span class="sending-pulse text-white/60">⏳</span>';
+  btn.disabled = true;
+
+  const placeholderId = addBotPlaceholder();
+
+  try {
+    const r = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, agentId: activeAgent }),
+    });
+    const data = await r.json();
+    if (data.error) {
+      updateBotMsg(placeholderId, "⚠️ " + data.error);
+    } else {
+      updateBotMsg(placeholderId, data.text || "(пустой ответ)");
     }
-    finishBot();
-  }catch(e){showTyping(false);addBot("⚠️ "+e.message);isStreaming=false;}
-}
-function handleKey(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMsg();}}
-function addUser(text){
-  const msgs=document.getElementById("messages");
-  const d=document.createElement("div");
-  d.className="flex gap-3 justify-end";
-  d.innerHTML=`<div class="msg-user rounded-2xl rounded-tr-sm px-4 py-3 max-w-2xl"><div class="text-sm text-white/85 leading-relaxed whitespace-pre-wrap">${esc(text)}</div></div><div class="w-8 h-8 rounded-full bg-indigo-600/25 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">👤</div>`;
-  msgs.appendChild(d);scroll();
-}
-function appendBot(chunk){
-  if(!currentBotEl){
-    const msgs=document.getElementById("messages");
-    const d=document.createElement("div");
-    d.className="flex gap-3";
-    d.innerHTML=`<div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">🛰️</div><div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl"><div class="text-xs font-medium text-indigo-400 mb-1">Sputnik</div><div class="bot-text text-sm text-white/80 leading-relaxed whitespace-pre-wrap"></div></div>`;
-    msgs.appendChild(d);
-    currentBotEl=d.querySelector(".bot-text");
-    currentText="";
+  } catch (e) {
+    updateBotMsg(placeholderId, "⚠️ " + e.message);
   }
-  currentText+=chunk;
-  currentBotEl.textContent=currentText;
+
+  isSending = false;
+  btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>';
+  btn.disabled = false;
+}
+
+function handleKey(e) {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+}
+
+function addUser(text) {
+  const msgs = document.getElementById("messages");
+  const d = document.createElement("div");
+  d.className = "flex gap-3 justify-end";
+  d.innerHTML = `<div class="msg-user rounded-2xl rounded-tr-sm px-4 py-3 max-w-2xl"><div class="text-sm text-white/85 leading-relaxed whitespace-pre-wrap">${esc(text)}</div></div><div class="w-8 h-8 rounded-full bg-indigo-600/25 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">👤</div>`;
+  msgs.appendChild(d);
   scroll();
 }
-function addBot(text){appendBot(text);finishBot();}
-function finishBot(){currentBotEl=null;currentText="";isStreaming=false;showTyping(false);}
-function showTyping(v){document.getElementById("typing-row").className=v?"px-6 pb-2":"hidden";}
-function scroll(){const m=document.getElementById("messages");m.scrollTop=m.scrollHeight;}
-function esc(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+function addBotPlaceholder() {
+  const id = "bot-" + Date.now();
+  const msgs = document.getElementById("messages");
+  const d = document.createElement("div");
+  d.className = "flex gap-3";
+  d.id = id;
+  const agentIcon = activeAgent === "main" ? "🛰️" : "🤖";
+  d.innerHTML = `<div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">${agentIcon}</div><div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl"><div class="text-xs font-medium text-indigo-400 mb-1">${activeAgent}</div><div class="bot-text text-sm text-white/50 italic leading-relaxed">печатает…</div></div>`;
+  msgs.appendChild(d);
+  scroll();
+  return id;
+}
+
+function updateBotMsg(id, text) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.querySelector(".bot-text").className = "bot-text text-sm text-white/80 leading-relaxed whitespace-pre-wrap";
+    el.querySelector(".bot-text").textContent = text;
+  }
+  scroll();
+}
+
+function scroll() { const m = document.getElementById("messages"); m.scrollTop = m.scrollHeight; }
+function esc(t) { return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
 // Init
 loadStatus();
-setInterval(loadStatus,30000);
+loadAgents();
+setInterval(loadStatus, 30000);
 </script>
 </body>
 </html>
