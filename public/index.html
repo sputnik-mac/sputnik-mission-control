@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🛰️ Sputnik Mission Control</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+    code, .mono { font-family: 'JetBrains Mono', monospace; }
+    body { background: #0a0a0f; }
+    .glass {
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .glow { box-shadow: 0 0 20px rgba(99,102,241,0.15); }
+    .msg-user { background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.2); }
+    .msg-agent { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+    #messages { scroll-behavior: smooth; }
+    #messages::-webkit-scrollbar { width: 4px; }
+    #messages::-webkit-scrollbar-track { background: transparent; }
+    #messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot-green { background: #10b981; box-shadow: 0 0 6px #10b981; }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .typing span { animation: blink 1.2s infinite; display: inline-block; }
+    .typing span:nth-child(2) { animation-delay: .2s; }
+    .typing span:nth-child(3) { animation-delay: .4s; }
+    @keyframes blink { 0%,100%{opacity:.2} 50%{opacity:1} }
+    textarea { resize: none; }
+    textarea:focus { outline: none; }
+  </style>
+</head>
+<body class="min-h-screen text-white flex flex-col">
+
+  <!-- Header -->
+  <header class="glass border-b border-white/8 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-4">
+      <div class="text-2xl">🛰️</div>
+      <div>
+        <h1 class="text-lg font-semibold text-white">Sputnik Mission Control</h1>
+        <p class="text-xs text-white/40 mono">claude-sonnet-4-6 · OpenClaw Gateway</p>
+      </div>
+    </div>
+    <!-- Status bar -->
+    <div class="flex items-center gap-6 text-xs">
+      <div class="flex items-center gap-2">
+        <span class="status-dot" id="dot-gateway"></span>
+        <span class="text-white/50">Gateway</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="status-dot" id="dot-qdrant"></span>
+        <span class="text-white/50">Qdrant</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="status-dot" id="dot-ollama"></span>
+        <span class="text-white/50">Ollama</span>
+      </div>
+      <div class="flex items-center gap-2 text-white/30">
+        <span id="memory-count">— memories</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="flex-1 flex overflow-hidden" style="height: calc(100vh - 73px)">
+
+    <!-- Sidebar -->
+    <aside class="w-64 glass border-r border-white/8 flex flex-col p-4 gap-2 hidden md:flex">
+      <div class="text-xs font-semibold text-white/30 uppercase tracking-wider mb-2">Sessions</div>
+      <div class="glass rounded-xl p-3 cursor-pointer border border-indigo-500/40 bg-indigo-500/5">
+        <div class="text-sm font-medium text-white">Main Chat</div>
+        <div class="text-xs text-white/40 mt-0.5">Active now</div>
+      </div>
+      <div class="mt-auto">
+        <div class="glass rounded-xl p-3">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-sm">🛰️</div>
+            <div>
+              <div class="text-sm font-medium">Sputnik</div>
+              <div class="text-xs text-white/40">AI Assistant</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Chat area -->
+    <section class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Messages -->
+      <div id="messages" class="flex-1 overflow-y-auto p-6 space-y-4">
+        <!-- Welcome message -->
+        <div class="flex gap-3 msg-bot">
+          <div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-1">🛰️</div>
+          <div class="msg-agent rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl">
+            <div class="text-sm font-medium text-indigo-400 mb-1">Sputnik</div>
+            <div class="text-sm text-white/85 leading-relaxed">
+              Привет! Mission Control онлайн 🚀<br><br>
+              Я твой AI-ассистент. Здесь ты можешь общаться со мной напрямую через Gateway.
+              Статус всех сервисов виден вверху.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Typing indicator (hidden by default) -->
+      <div id="typing" class="hidden px-6 pb-2">
+        <div class="flex gap-3">
+          <div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm">🛰️</div>
+          <div class="msg-agent rounded-2xl rounded-tl-sm px-4 py-3">
+            <div class="typing text-white/50 text-sm">
+              <span>●</span><span>●</span><span>●</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input area -->
+      <div class="p-4 border-t border-white/8">
+        <div class="glass rounded-2xl flex items-end gap-3 px-4 py-3 glow">
+          <textarea
+            id="input"
+            rows="1"
+            placeholder="Напиши сообщение..."
+            class="flex-1 bg-transparent text-sm text-white placeholder-white/30 leading-relaxed"
+            style="max-height: 120px; min-height: 24px;"
+            onInput="this.style.height='auto'; this.style.height=this.scrollHeight+'px'"
+            onKeydown="handleKey(event)"
+          ></textarea>
+          <button
+            id="send-btn"
+            onclick="sendMessage()"
+            class="flex-shrink-0 w-9 h-9 rounded-xl bg-indigo-500 hover:bg-indigo-400 transition-colors flex items-center justify-center"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+              <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+            </svg>
+          </button>
+        </div>
+        <p class="text-xs text-white/20 text-center mt-2">Enter to send · Shift+Enter for new line</p>
+      </div>
+    </section>
+  </main>
+
+<script>
+  let ws = null;
+  let connected = false;
+  let msgIdCounter = 1;
+  let pendingMessages = {};
+  let currentBotMsg = null;
+  let currentBotText = "";
+
+  // Status
+  async function loadStatus() {
+    try {
+      const r = await fetch("/api/status");
+      const s = await r.json();
+      setDot("dot-gateway", s.gateway);
+      setDot("dot-qdrant", s.qdrant);
+      setDot("dot-ollama", s.ollama);
+    } catch {}
+    try {
+      const r2 = await fetch("/api/memories");
+      const m = await r2.json();
+      document.getElementById("memory-count").textContent = `${m.count} memories`;
+    } catch {}
+  }
+
+  function setDot(id, ok) {
+    const el = document.getElementById(id);
+    el.className = "status-dot " + (ok ? "dot-green" : "dot-red");
+  }
+
+  // WebSocket
+  function connectWs() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+    ws.onopen = () => {
+      connected = true;
+      setDot("dot-gateway", true);
+      console.log("WS connected");
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        handleGatewayMsg(msg);
+      } catch {}
+    };
+
+    ws.onclose = () => {
+      connected = false;
+      setDot("dot-gateway", false);
+      setTimeout(connectWs, 3000);
+    };
+
+    ws.onerror = () => {
+      ws.close();
+    };
+  }
+
+  function handleGatewayMsg(msg) {
+    if (msg.type === "stream") {
+      const chunk = msg.data?.text ?? msg.data?.delta ?? "";
+      if (chunk) appendToBot(chunk);
+    } else if (msg.type === "res" && msg.method === "chat") {
+      const text = msg.data?.text ?? msg.data?.content ?? "";
+      if (text && !currentBotMsg) appendToBot(text);
+      finishBot();
+    } else if (msg.type === "event" && msg.event === "message") {
+      const text = msg.data?.text ?? msg.data?.content ?? "";
+      if (text) { appendToBot(text); finishBot(); }
+    }
+  }
+
+  function sendMessage() {
+    const input = document.getElementById("input");
+    const text = input.value.trim();
+    if (!text) return;
+
+    addUserMsg(text);
+    input.value = "";
+    input.style.height = "24px";
+    showTyping(true);
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const id = "msg-" + (msgIdCounter++);
+      const frame = {
+        type: "req",
+        method: "chat",
+        id,
+        params: { message: text, sessionKey: "main" }
+      };
+      pendingMessages[id] = true;
+      ws.send(JSON.stringify(frame));
+    } else {
+      showTyping(false);
+      addBotMsg("⚠️ Gateway не подключён. Попробуй позже.");
+    }
+  }
+
+  function handleKey(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  function addUserMsg(text) {
+    const msgs = document.getElementById("messages");
+    const div = document.createElement("div");
+    div.className = "flex gap-3 justify-end";
+    div.innerHTML = `
+      <div class="msg-user rounded-2xl rounded-tr-sm px-4 py-3 max-w-2xl">
+        <div class="text-sm text-white/90 leading-relaxed whitespace-pre-wrap">${escHtml(text)}</div>
+      </div>
+      <div class="w-8 h-8 rounded-full bg-indigo-600/30 flex-shrink-0 flex items-center justify-center text-sm mt-1">👤</div>
+    `;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function appendToBot(chunk) {
+    showTyping(false);
+    if (!currentBotMsg) {
+      currentBotText = "";
+      const msgs = document.getElementById("messages");
+      const div = document.createElement("div");
+      div.className = "flex gap-3";
+      div.innerHTML = `
+        <div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-1">🛰️</div>
+        <div class="msg-agent rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl">
+          <div class="text-sm font-medium text-indigo-400 mb-1">Sputnik</div>
+          <div class="bot-text text-sm text-white/85 leading-relaxed whitespace-pre-wrap"></div>
+        </div>
+      `;
+      msgs.appendChild(div);
+      currentBotMsg = div.querySelector(".bot-text");
+    }
+    currentBotText += chunk;
+    currentBotMsg.textContent = currentBotText;
+    document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight;
+  }
+
+  function addBotMsg(text) {
+    appendToBot(text);
+    finishBot();
+  }
+
+  function finishBot() {
+    showTyping(false);
+    currentBotMsg = null;
+    currentBotText = "";
+  }
+
+  function showTyping(v) {
+    document.getElementById("typing").className = v ? "px-6 pb-2" : "hidden";
+  }
+
+  function escHtml(t) {
+    return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  // Init
+  loadStatus();
+  setInterval(loadStatus, 30000);
+  connectWs();
+</script>
+</body>
+</html>
