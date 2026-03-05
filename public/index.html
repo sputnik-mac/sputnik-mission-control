@@ -155,31 +155,45 @@ function switchTab(t) {
   if (t === "settings") loadCron();
 }
 
+// Agent display names
+const AGENT_LABELS = {
+  "main": { name: "Sputnik", icon: "🛰️", desc: "Main assistant" },
+  "github-agent": { name: "GitHub Agent", icon: "🐙", desc: "PR & code contributions" },
+  "claude-code": { name: "Claude Code", icon: "💻", desc: "Coding assistant" },
+};
+function agentLabel(id) {
+  if (AGENT_LABELS[id]) return AGENT_LABELS[id];
+  const name = id.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  return { name, icon: "🤖", desc: "agent" };
+}
+
 // Agents sidebar
 async function loadAgents() {
   try {
     const r = await fetch("/api/agents");
     const agents = await r.json();
     const el = document.getElementById("agent-sidebar");
-    // Always include "main"
-    const all = agents.length ? agents : [{ id: "main", soul: "Primary agent" }];
-    if (!all.find(a => a.id === "main")) all.unshift({ id: "main", soul: "Primary agent" });
-    el.innerHTML = all.map(a => `
+    const all = agents.length ? agents : [{ id: "main" }];
+    if (!all.find(a => a.id === "main")) all.unshift({ id: "main" });
+    el.innerHTML = all.map(a => {
+      const lb = agentLabel(a.id);
+      return `
       <div class="agent-item ${a.id === activeAgent ? "active" : ""}" id="ag-${a.id}" onclick="selectAgent('${a.id}')">
         <div class="flex items-center gap-2">
-          <div class="w-7 h-7 rounded-lg bg-indigo-500/15 flex items-center justify-center text-xs flex-shrink-0">${a.id === "main" ? "🛰️" : "🤖"}</div>
+          <div class="w-7 h-7 rounded-lg bg-indigo-500/15 flex items-center justify-center text-sm flex-shrink-0">${lb.icon}</div>
           <div class="min-w-0">
-            <div class="text-sm font-medium text-white truncate">${a.id}</div>
-            <div class="text-xs text-white/30 truncate">${a.soul ? a.soul.replace(/[#*]/g,"").slice(0,30) : "agent"}</div>
+            <div class="text-sm font-medium text-white truncate">${lb.name}</div>
+            <div class="text-xs text-white/30 truncate">${lb.desc}</div>
           </div>
         </div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
   } catch {
     document.getElementById("agent-sidebar").innerHTML = `
       <div class="agent-item active" id="ag-main" onclick="selectAgent('main')">
         <div class="flex items-center gap-2">
-          <div class="w-7 h-7 rounded-lg bg-indigo-500/15 flex items-center justify-center text-xs">🛰️</div>
-          <div><div class="text-sm font-medium text-white">main</div><div class="text-xs text-white/30">Primary</div></div>
+          <div class="w-7 h-7 rounded-lg bg-indigo-500/15 flex items-center justify-center text-sm">🛰️</div>
+          <div><div class="text-sm font-medium text-white">Sputnik</div><div class="text-xs text-white/30">Main assistant</div></div>
         </div>
       </div>`;
   }
@@ -232,19 +246,25 @@ async function sendMsg() {
   const placeholderId = addBotPlaceholder();
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
     const r = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text, agentId: activeAgent }),
+      signal: controller.signal,
     });
-    const data = await r.json();
-    if (data.error) {
-      updateBotMsg(placeholderId, "⚠️ " + data.error);
+    clearTimeout(timeout);
+    const raw = await r.text();
+    let data;
+    try { data = JSON.parse(raw); } catch { data = { error: "Invalid response: " + raw.slice(0,100) }; }
+    if (!r.ok || data.error) {
+      updateBotMsg(placeholderId, "⚠️ " + (data.error || `HTTP ${r.status}`));
     } else {
       updateBotMsg(placeholderId, data.text || "(пустой ответ)");
     }
   } catch (e) {
-    updateBotMsg(placeholderId, "⚠️ " + e.message);
+    updateBotMsg(placeholderId, "⚠️ " + (e.name === "AbortError" ? "Timeout (120s)" : e.message));
   }
 
   isSending = false;
@@ -271,8 +291,8 @@ function addBotPlaceholder() {
   const d = document.createElement("div");
   d.className = "flex gap-3";
   d.id = id;
-  const agentIcon = activeAgent === "main" ? "🛰️" : "🤖";
-  d.innerHTML = `<div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">${agentIcon}</div><div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl"><div class="text-xs font-medium text-indigo-400 mb-1">${activeAgent}</div><div class="bot-text text-sm text-white/50 italic leading-relaxed">печатает…</div></div>`;
+  const agentIcon = agentLabel(activeAgent).icon;
+  d.innerHTML = `<div class="w-8 h-8 rounded-full bg-indigo-500/20 flex-shrink-0 flex items-center justify-center text-sm mt-0.5">${agentIcon}</div><div class="msg-bot rounded-2xl rounded-tl-sm px-4 py-3 max-w-2xl"><div class="text-xs font-medium text-indigo-400 mb-1">${agentLabel(activeAgent).name}</div><div class="bot-text text-sm text-white/50 italic leading-relaxed">печатает…</div></div>`;
   msgs.appendChild(d);
   scroll();
   return id;

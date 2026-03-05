@@ -9,6 +9,13 @@ const GATEWAY = "http://localhost:18789";
 const TOKEN = "19312506a9cb5d813ce65b2edacf09751d11561111830994";
 const PORT = process.env.PORT || 3100;
 
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json());
 
