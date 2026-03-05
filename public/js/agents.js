@@ -26,6 +26,7 @@ async function loadAgents() {
         </div>
       </div>`;
     }).join("");
+    buildAgentChips(all);
   } catch {
     document.getElementById("agent-sidebar").innerHTML = `
       <div class="agent-item active" id="ag-main" onclick="selectAgent('main')">
@@ -44,10 +45,42 @@ function selectAgent(id) {
   if (el) el.classList.add("active");
   const lb = agentLabel(id);
   document.getElementById("active-agent-label").textContent = lb.name;
+  document.querySelectorAll(".agent-chip").forEach(el => el.classList.remove("active-chip"));
+  const chip = document.getElementById("chip-" + id);
+  if (chip) chip.classList.add("active-chip");
   clearChatAndLoadHistory(id);
 }
 
 function setAgentWorking(agentId, working) {
   const icon = document.querySelector(`#ag-${agentId} .agent-icon`);
   if (icon) icon.classList.toggle("working", working);
+  setAgentChipStatus(agentId, working ? "processing" : "idle");
+}
+
+function buildAgentChips(agents) {
+  const el = document.getElementById("agent-chips");
+  if (!el) return;
+  el.innerHTML = agents.map(a => {
+    const lb = agentLabel(a.id);
+    return `
+    <div class="agent-chip ${a.id === (window.activeAgent||'main') ? 'active-chip' : ''}"
+         id="chip-${a.id}" onclick="selectAgent('${a.id}')">
+      <span class="chip-icon">${lb.icon}</span>
+      <span class="chip-name">${lb.name}</span>
+      <span class="chip-dot chip-dot-idle" id="chip-dot-${a.id}"></span>
+      <span class="chip-status chip-status-text" id="chip-txt-${a.id}"></span>
+    </div>`;
+  }).join('<span style="color:rgba(255,255,255,.15);font-size:11px">·</span>');
+}
+
+function setAgentChipStatus(agentId, status) {
+  const dot = document.getElementById(`chip-dot-${agentId}`);
+  const txt = document.getElementById(`chip-txt-${agentId}`);
+  if (!dot || !txt) return;
+  dot.className = "chip-dot " + (
+    status === "idle" ? "chip-dot-idle" :
+    status === "processing" ? "chip-dot-busy" : "chip-dot-offline"
+  );
+  txt.textContent = status === "processing" ? "thinking..." : status === "offline" ? "offline" : "";
+  txt.classList.toggle("visible", status !== "idle");
 }

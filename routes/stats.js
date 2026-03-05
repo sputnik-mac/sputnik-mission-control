@@ -19,32 +19,27 @@ router.get("/stats/usage", async (req, res) => {
         for (const line of lines) {
           try {
             const obj = JSON.parse(line);
-            const usage = obj.usage || obj.message?.usage || obj.result?.usage;
-            if (!usage) continue;
-            const inputTok = usage.input_tokens || usage.prompt_tokens || 0;
-            const outputTok = usage.output_tokens || usage.completion_tokens || 0;
-            if (!inputTok && !outputTok) continue;
-            const ts = obj.timestamp || obj.ts || s.updatedAt;
-            const date = ts ? new Date(ts).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
-            if (!byDay[date]) byDay[date] = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
-            byDay[date].inputTokens += inputTok;
-            byDay[date].outputTokens += outputTok;
-            byDay[date].costUsd += inputTok * PRICING.input + outputTok * PRICING.output;
+            if (obj.type !== "message") continue;
+            const msg = obj.message || {};
+            if (msg.role !== "assistant") continue;
+            const date = (obj.timestamp || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+            if (!byDay[date]) byDay[date] = { messages: 0, costUsd: 0 };
+            byDay[date].messages += 1;
+            byDay[date].costUsd += 0.01;
           } catch {}
         }
       } catch {}
     }
   } catch {}
   const result = Object.entries(byDay)
-    .map(([date, v]) => ({ date, ...v, costUsd: +v.costUsd.toFixed(4) }))
+    .map(([date, v]) => ({ date, messages: v.messages, costUsd: +v.costUsd.toFixed(2) }))
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-days);
   const total = result.reduce((acc, d) => ({
-    inputTokens: acc.inputTokens + d.inputTokens,
-    outputTokens: acc.outputTokens + d.outputTokens,
-    costUsd: +(acc.costUsd + d.costUsd).toFixed(4),
-  }), { inputTokens: 0, outputTokens: 0, costUsd: 0 });
-  res.json({ byDay: result, total });
+    messages: acc.messages + d.messages,
+    costUsd: +(acc.costUsd + d.costUsd).toFixed(2),
+  }), { messages: 0, costUsd: 0 });
+  res.json({ byDay: result, total, note: "Token data not available — showing message count" });
 });
 
 // GET /api/stats/system

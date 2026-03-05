@@ -588,3 +588,47 @@ POST /api/things                          → { ok }   Body: { title, notes, whe
 6. **Tailscale:** Serve config maps `https://sputniks-mac-mini.tailcde006.ts.net:8444` → `http://127.0.0.1:3100`.
 7. **No SSE/WebSocket:** Tailscale buffers chunked responses. Use polling for all async operations.
 8. **LaunchAgent:** Server auto-starts via `~/Library/LaunchAgents/dev.sputnik.mission-control.plist`. Logs to `/tmp/mc.log`.
+
+---
+
+## Block 8 — Автоски (Automated Scripts / Auto-tasks)
+
+> Planned feature — to be implemented
+
+### Concept
+A system for creating and running automated scripts directly from Mission Control.
+Instead of cron jobs (which are time-based), these are **trigger-based** or **on-demand** scripts.
+
+### Use cases
+- "Every time I open MC → run a quick summary of what happened while I was away"
+- "When GitHub agent finishes → notify me with a summary"
+- "Click a button → run a custom script (e.g. pull latest PRs, check salary data, scrape a site)"
+
+### Planned UI
+New tab `🤖 Automate` with:
+- List of saved scripts (name, description, last run)
+- ▶ Run button per script
+- Script editor: prompt + schedule (optional) + trigger type
+- Run history with output
+
+### Planned API
+```
+GET  /api/automate          → list saved scripts
+POST /api/automate          → create new script
+POST /api/automate/:id/run  → run a script now
+GET  /api/automate/:id/logs → last run output
+DELETE /api/automate/:id    → delete script
+```
+
+### Storage
+Scripts stored in `~/.openclaw/workspace/automate/` as `.json` files:
+```json
+{
+  "id": "uuid",
+  "name": "Daily Summary",
+  "prompt": "Summarize what happened today...",
+  "trigger": "manual",
+  "lastRunAt": null,
+  "lastRunStatus": null
+}
+```

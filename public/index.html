@@ -19,23 +19,23 @@
 <body class="text-white flex flex-col" style="height:100vh">
 
 <!-- Header -->
-<header class="glass border-b border-white/8 px-5 py-3 flex items-center justify-between flex-shrink-0">
-  <div class="flex items-center gap-3">
-    <span class="text-xl">🛰️</span>
-    <div>
-      <h1 class="text-sm font-semibold leading-tight">Sputnik Mission Control</h1>
-      <p class="text-xs text-white/30 mono" id="model-label">claude-sonnet-4-6</p>
-    </div>
+<header class="glass border-b border-white/8 px-5 py-3 flex items-center gap-4 flex-shrink-0">
+  <div class="flex items-center gap-2 flex-shrink-0">
+    <span class="text-lg">🛰️</span>
+    <h1 class="text-sm font-semibold">Mission Control</h1>
   </div>
-  <div class="flex items-center gap-5 text-xs">
-    <div class="flex items-center gap-1.5"><span class="dot" id="d-gw"></span><span class="text-white/40">Gateway</span></div>
-    <div class="flex items-center gap-1.5"><span class="dot" id="d-ol"></span><span class="text-white/40">Ollama</span></div>
-    <span class="text-white/20 mono text-xs" id="mem-count"></span>
+  <!-- Agent chips — filled by agents.js -->
+  <div class="flex items-center gap-2 flex-1 justify-center" id="agent-chips"></div>
+  <!-- System status -->
+  <div class="flex items-center gap-3 text-xs flex-shrink-0">
+    <div class="flex items-center gap-1.5"><span class="dot" id="d-gw"></span><span class="text-white/35">GW</span></div>
+    <div class="flex items-center gap-1.5"><span class="dot" id="d-ol"></span><span class="text-white/35">AI</span></div>
+    <span class="text-white/20 mono" id="mem-count"></span>
   </div>
 </header>
 
 <!-- Tabs -->
-<div class="flex gap-1 px-5 pt-3 pb-0 flex-shrink-0">
+<div class="flex gap-1 px-5 pt-3 pb-0 flex-shrink-0 justify-center">
   <button class="tab-btn on" id="tab-chat" onclick="switchTab('chat')">💬 Chats</button>
   <button class="tab-btn off" id="tab-memory" onclick="switchTab('memory')">🧠 Memory</button>
   <button class="tab-btn off" id="tab-jobs" onclick="switchTab('jobs')">🕐 Jobs</button>
@@ -67,16 +67,6 @@
       </div>
     </div>
 
-    <!-- Quick actions -->
-    <div class="px-5 pb-2 pt-0 flex-shrink-0 flex items-center gap-2">
-      <span class="text-xs text-white/20">⚡</span>
-      <button onclick="sendReminder(5)" class="quick-btn">⏰ 5м</button>
-      <button onclick="sendReminder(15)" class="quick-btn">⏰ 15м</button>
-      <button onclick="sendReminder(30)" class="quick-btn">⏰ 30м</button>
-      <button onclick="sendCustomReminder()" class="quick-btn">⏰ …</button>
-      <button onclick="addToThings()" class="quick-btn">📋 Things</button>
-    </div>
-
     <!-- Input -->
     <div class="px-5 pb-5 pt-2 flex-shrink-0">
       <div class="glass rounded-2xl flex items-end gap-3 px-4 py-3" style="box-shadow:0 0 20px rgba(99,102,241,.08)">
@@ -92,7 +82,7 @@
 
 <!-- SESSIONS VIEW -->
 <div id="view-sessions" class="hidden flex-1 overflow-y-auto px-5 py-4">
-  <div class="max-w-2xl">
+  <div class="max-w-2xl mx-auto w-full">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-xs font-semibold text-white/30 uppercase tracking-wider">Active Sessions</h2>
       <span class="text-xs text-white/20 mono" id="sessions-count"></span>
@@ -105,7 +95,7 @@
 
 <!-- MEMORY VIEW -->
 <div id="view-memory" class="hidden flex-1 overflow-y-auto px-5 py-4">
-  <div class="max-w-2xl space-y-5">
+  <div class="max-w-2xl mx-auto w-full space-y-5">
     <!-- Sub-tabs -->
     <div class="flex gap-2">
       <button class="mem-tab on" id="mt-qdrant" onclick="switchMemTab('qdrant')">🔮 Qdrant</button>
@@ -135,7 +125,7 @@
 
 <!-- JOBS VIEW -->
 <div id="view-jobs" class="hidden flex-1 overflow-y-auto px-5 py-4">
-  <div class="max-w-2xl">
+  <div class="max-w-2xl mx-auto w-full">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-xs font-semibold text-white/30 uppercase tracking-wider">Cron Jobs</h2>
       <button onclick="loadJobs()" class="text-xs text-indigo-400/60 hover:text-indigo-400">↻ обновить</button>
@@ -148,7 +138,7 @@
 
 <!-- STATS VIEW -->
 <div id="view-stats" class="hidden flex-1 overflow-y-auto px-5 py-4">
-  <div class="max-w-2xl space-y-5">
+  <div class="max-w-2xl mx-auto w-full space-y-5">
     <div>
       <h2 class="text-xs font-semibold text-white/30 uppercase tracking-wider mb-3">System</h2>
       <div class="glass rounded-2xl p-4 grid grid-cols-3 gap-4" id="sys-stats">
@@ -179,7 +169,7 @@
 
 <!-- SETTINGS VIEW -->
 <div id="view-settings" class="hidden flex-1 overflow-y-auto px-5 py-4">
-  <div class="max-w-xl space-y-5">
+  <div class="max-w-xl mx-auto w-full space-y-5">
     <div>
       <h2 class="text-xs font-semibold text-white/30 uppercase tracking-wider mb-3">Agent Info</h2>
       <div class="glass rounded-2xl p-4 space-y-3">
@@ -213,7 +203,7 @@
 <script src="/js/jobs.js"></script>
 <script src="/js/stats.js"></script>
 <script src="/js/settings.js"></script>
-<script src="/js/quickactions.js"></script>
+<!-- quickactions.js removed -->
 <script src="/js/app.js"></script>
 
 </body>
