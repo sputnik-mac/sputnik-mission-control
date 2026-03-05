@@ -567,7 +567,7 @@ function drawAgent(x, y, agent, size) {
 }
 
 // ─── RENDER LOOP ──────────────────────────────────────────────────────────────
-function render() {
+function _renderCore() {
   frame++;
   const W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
@@ -842,7 +842,7 @@ function render() {
   const tickEl = document.getElementById("ticker");
   if (tickerLines.length) tickEl.innerHTML = tickerLines.slice(-3).join("<br>");
 
-  requestAnimationFrame(render);
+  requestAnimationFrame(render); // calls the night-mode wrapper
 }
 
 // ─── SSE ──────────────────────────────────────────────────────────────────────
@@ -1171,9 +1171,7 @@ function touchActivity() { lastActivityTime = Date.now(); }
 document.addEventListener("mousemove", touchActivity);
 document.addEventListener("keydown", touchActivity);
 
-// Night mode is blended in render loop based on nightModeAlpha
-// Injected into render() via the existing frame loop
-const _origRender = render;
+// Night mode wrapper — _renderCore does the animation, render() wraps with night overlay
 function render() {
   // Check night mode
   const idleSec = Date.now() - lastActivityTime;
@@ -1182,7 +1180,7 @@ function render() {
   const shouldNight = idleSec > NIGHT_IDLE_THRESHOLD && !anyThinking;
   nightModeAlpha = lerp(nightModeAlpha, shouldNight ? 1 : 0, 0.005);
   nightModeActive = nightModeAlpha > 0.05;
-  _origRender();
+  _renderCore();
   // Night mode overlay
   if (nightModeActive) {
     // Deep purple vignette
