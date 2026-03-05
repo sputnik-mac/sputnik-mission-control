@@ -381,7 +381,9 @@ app.get("/api/cron", async (req, res) => {
       id: j.id,
       name: j.name || j.label || j.id,
       description: j.description || "",
-      schedule: j.schedule?.expr || j.schedule || j.cron || "",
+      schedule: typeof j.schedule === "object"
+        ? (j.schedule?.expr || j.schedule?.kind || JSON.stringify(j.schedule))
+        : (j.schedule || j.cron || ""),
       tz: j.schedule?.tz || "",
       lastRunStatus: j.state?.lastRunStatus === "ok" ? "success" : (j.state?.lastRunStatus || null),
       lastRunAt: j.state?.lastRunAtMs ? new Date(j.state.lastRunAtMs).toISOString() : null,
