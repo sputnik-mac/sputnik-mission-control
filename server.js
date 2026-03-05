@@ -21,13 +21,52 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
+// Auto-cleanup orphan openai:* sessions every 24h
+setInterval(cleanupOrphanSessions, 24 * 60 * 60 * 1000);
+cleanupOrphanSessions();
+
+function cleanupOrphanSessions() {
+  const fs = require("fs");
+  const agents = ["main", "github-agent", "claude-code"];
+  let total = 0;
+  for (const agent of agents) {
+    try {
+      const p = `${process.env.HOME}/.openclaw/agents/${agent}/sessions/sessions.json`;
+      const data = JSON.parse(fs.readFileSync(p, "utf8"));
+      const cleaned = {};
+      for (const [key, session] of Object.entries(data)) {
+        if (/openai:[0-9a-f-]{36}/.test(key)) {
+          const sf = session.sessionFile;
+          if (sf) try { fs.unlinkSync(sf); } catch {}
+          total++;
+        } else {
+          cleaned[key] = session;
+        }
+      }
+      fs.writeFileSync(p, JSON.stringify(cleaned, null, 2));
+    } catch {}
+  }
+  if (total > 0) console.log(`[cleanup] Removed ${total} orphan sessions`);
+}
+
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
+
+// SQLite setup
+const Database = require("better-sqlite3");
+let db;
+try {
+  db = new Database("/Users/sputnik/.openclaw/memory/personal.sqlite", { readonly: true });
+  console.log("[sqlite] Connected to personal.sqlite");
+} catch (e) {
+  db = null;
+  console.warn("[sqlite] Not available:", e.message);
+}
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json());
 
@@ -71,6 +110,153 @@ app.get("/api/memories", async (req, res) => {
     const data = await r.json();
     res.json({ count: data?.result?.points_count ?? 0 });
   } catch { res.json({ count: 0 }); }
+});
+
+// API: memories list (with optional semantic search)
+app.get("/api/memories/list", async (req, res) => {
+  const q = req.query.q || "";
+  const limit = parseInt(req.query.limit) || 20;
+  const offset = parseInt(req.query.offset) || 0;
+  try {
+    let points = [];
+    let total = 0;
+    if (q.trim()) {
+      // Semantic search via Ollama embedding
+      const embRes = await fetch("http://localhost:11434/api/embeddings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "nomic-embed-text", prompt: q }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const embData = await embRes.json();
+      const embedding = embData.embedding;
+      const searchRes = await fetch("http://localhost:6333/collections/sputnik-memory/points/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vector: embedding, limit, with_payload: true }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const searchData = await searchRes.json();
+      const rawPoints = searchData.result || [];
+      total = rawPoints.length;
+      points = rawPoints.map(p => ({
+        id: p.id,
+        text: p.payload?.data || p.payload?.text || p.payload?.memory || "",
+        metadata: {
+          user_id: p.payload?.user_id,
+          created_at: p.payload?.created_at,
+          categories: p.payload?.categories,
+        },
+      }));
+    } else {
+      // Scroll all points
+      const scrollRes = await fetch("http://localhost:6333/collections/sputnik-memory/points/scroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit, offset, with_payload: true, with_vector: false }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const scrollData = await scrollRes.json();
+      const rawPoints = scrollData.result?.points || [];
+      // Get total from collection info
+      try {
+        const infoRes = await fetch("http://localhost:6333/collections/sputnik-memory", { signal: AbortSignal.timeout(3000) });
+        const info = await infoRes.json();
+        total = info?.result?.points_count ?? rawPoints.length;
+      } catch { total = rawPoints.length; }
+      points = rawPoints.map(p => ({
+        id: p.id,
+        text: p.payload?.data || p.payload?.text || p.payload?.memory || "",
+        metadata: {
+          user_id: p.payload?.user_id,
+          created_at: p.payload?.created_at,
+          categories: p.payload?.categories,
+        },
+      }));
+    }
+    res.json({ points, total });
+  } catch (e) {
+    console.error("[memories/list]", e.message);
+    res.json({ points: [], total: 0 });
+  }
+});
+
+// API: delete memory point
+app.delete("/api/memories/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    // Try parsing as number, otherwise keep as string
+    const pointId = /^\d+$/.test(id) ? parseInt(id) : id;
+    await fetch("http://localhost:6333/collections/sputnik-memory/points/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ points: [pointId] }),
+      signal: AbortSignal.timeout(5000),
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// API: memory stats
+app.get("/api/memories/stats", async (req, res) => {
+  try {
+    const infoRes = await fetch("http://localhost:6333/collections/sputnik-memory", { signal: AbortSignal.timeout(3000) });
+    const info = await infoRes.json();
+    const total = info?.result?.points_count ?? 0;
+    // Scroll up to 1000 points for growth by day
+    const scrollRes = await fetch("http://localhost:6333/collections/sputnik-memory/points/scroll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ limit: 1000, with_payload: true, with_vector: false }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const scrollData = await scrollRes.json();
+    const pts = scrollData.result?.points || [];
+    const byDayMap = {};
+    for (const p of pts) {
+      if (p.payload?.created_at) {
+        const date = new Date(p.payload.created_at).toISOString().slice(0, 10);
+        byDayMap[date] = (byDayMap[date] || 0) + 1;
+      }
+    }
+    const byDay = Object.entries(byDayMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, count]) => ({ date, count }));
+    res.json({ total, byDay });
+  } catch (e) {
+    res.json({ total: 0, byDay: [] });
+  }
+});
+
+// API: SQLite - timeline
+app.get("/api/sqlite/timeline", (req, res) => {
+  if (!db) return res.json([]);
+  try {
+    const rows = db.prepare("SELECT * FROM timeline ORDER BY ts DESC LIMIT ?").all(parseInt(req.query.limit) || 20);
+    res.json(rows);
+  } catch { res.json([]); }
+});
+
+// API: SQLite - entities
+app.get("/api/sqlite/entities", (req, res) => {
+  if (!db) return res.json([]);
+  try {
+    const domain = req.query.domain;
+    const limit = parseInt(req.query.limit) || 20;
+    const rows = domain
+      ? db.prepare("SELECT * FROM entities WHERE domain = ? ORDER BY updated_at DESC LIMIT ?").all(domain, limit)
+      : db.prepare("SELECT * FROM entities ORDER BY updated_at DESC LIMIT ?").all(limit);
+    res.json(rows);
+  } catch { res.json([]); }
+});
+
+// API: SQLite - decisions
+app.get("/api/sqlite/decisions", (req, res) => {
+  if (!db) return res.json([]);
+  try {
+    const rows = db.prepare("SELECT * FROM decisions ORDER BY ts DESC LIMIT ?").all(parseInt(req.query.limit) || 20);
+    res.json(rows);
+  } catch { res.json([]); }
 });
 
 // API: agents
@@ -159,13 +345,62 @@ app.get("/api/chat/history", async (req, res) => {
   }
 });
 
-// API: cron
+// API: delete session
+app.delete("/api/sessions/:key", (req, res) => {
+  const fs = require("fs");
+  const key = decodeURIComponent(req.params.key);
+  if (key === "agent:main:telegram:direct:277364372") {
+    return res.status(403).json({ error: "Cannot delete main session" });
+  }
+  const agents = ["main", "github-agent", "claude-code"];
+  for (const agent of agents) {
+    try {
+      const p = `${process.env.HOME}/.openclaw/agents/${agent}/sessions/sessions.json`;
+      const data = JSON.parse(fs.readFileSync(p, "utf8"));
+      if (key in data) {
+        const sf = data[key]?.sessionFile;
+        if (sf) try { fs.unlinkSync(sf); } catch {}
+        delete data[key];
+        fs.writeFileSync(p, JSON.stringify(data, null, 2));
+        return res.json({ ok: true });
+      }
+    } catch {}
+  }
+  res.json({ ok: true }); // key not found, still ok
+});
+
+// API: cron - normalize format
 app.get("/api/cron", async (req, res) => {
   const { execSync } = require("child_process");
   try {
     const out = execSync("openclaw cron list --json 2>/dev/null", { timeout: 5000 }).toString();
-    res.json(JSON.parse(out));
+    const raw = JSON.parse(out);
+    // openclaw cron list returns { jobs: [...] }
+    const jobs = Array.isArray(raw) ? raw : (raw.jobs || []);
+    const normalized = jobs.map(j => ({
+      id: j.id,
+      name: j.name || j.label || j.id,
+      description: j.description || "",
+      schedule: j.schedule?.expr || j.schedule || j.cron || "",
+      tz: j.schedule?.tz || "",
+      lastRunStatus: j.state?.lastRunStatus === "ok" ? "success" : (j.state?.lastRunStatus || null),
+      lastRunAt: j.state?.lastRunAtMs ? new Date(j.state.lastRunAtMs).toISOString() : null,
+      nextRunAt: j.state?.nextRunAtMs ? new Date(j.state.nextRunAtMs).toISOString() : null,
+      enabled: j.enabled !== false,
+    }));
+    res.json(normalized);
   } catch { res.json([]); }
+});
+
+// API: trigger cron job manually
+app.post("/api/cron/:id/run", (req, res) => {
+  const { execSync } = require("child_process");
+  try {
+    execSync(`openclaw cron run ${req.params.id}`, { timeout: 10000 });
+    res.json({ ok: true });
+  } catch (e) {
+    res.json({ ok: false, error: e.message });
+  }
 });
 
 // CHAT: enqueue and return jobId immediately
