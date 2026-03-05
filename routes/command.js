@@ -146,7 +146,12 @@ router.get("/command/events", (req, res) => {
 
   sseClients.add(res);
 
-  req.on("close", () => { sseClients.delete(res); });
+  // Keepalive: SSE comment every 25s to prevent Tailscale/proxy from dropping idle connections
+  const keepalive = setInterval(() => {
+    try { res.write(": keepalive\n\n"); } catch { clearInterval(keepalive); sseClients.delete(res); }
+  }, 25000);
+
+  req.on("close", () => { clearInterval(keepalive); sseClients.delete(res); });
 });
 
 // POST /api/command/agent/:id/status — update agent status (called internally)
