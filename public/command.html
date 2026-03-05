@@ -196,6 +196,113 @@ const neuralWeb = {};  // "id1:id2" → { pulseProgress, sparkTimer, lastActivit
 // Per-agent planet state
 const planetState = {}; // id → { flareTimer, flareFrame, flareAngle, pulseRadius, pulseAlpha }
 
+// ─── ASTEROIDS ────────────────────────────────────────────────────────────────
+const asteroids = [];
+let asteroidTimer = 0;
+const ASTEROID_INTERVAL = 180; // frames between spawns (~3s at 60fps)
+
+function spawnAsteroid() {
+  const W = canvas.width, H = canvas.height;
+  // Random edge: 0=top, 1=right, 2=bottom, 3=left
+  const edge = Math.floor(Math.random() * 4);
+  let x, y, vx, vy;
+  const spd = 1.5 + Math.random() * 2.5;
+  const angle = (Math.random() - 0.5) * 0.8; // slight curve from straight
+  if (edge === 0)      { x = Math.random()*W; y = -20; vx = Math.cos(Math.PI/2+angle)*spd; vy = Math.sin(Math.PI/2+angle)*spd; }
+  else if (edge === 1) { x = W+20; y = Math.random()*H; vx = -Math.cos(angle)*spd; vy = Math.sin(angle)*spd; }
+  else if (edge === 2) { x = Math.random()*W; y = H+20; vx = Math.cos(-Math.PI/2+angle)*spd; vy = Math.sin(-Math.PI/2+angle)*spd; }
+  else                 { x = -20; y = Math.random()*H; vx = Math.cos(angle)*spd; vy = Math.sin(angle)*spd; }
+
+  const size = 3 + Math.random() * 7;
+  const rot = Math.random() * Math.PI * 2;
+  const rotSpeed = (Math.random() - 0.5) * 0.06;
+  // Random jagged shape — 6-9 vertices
+  const verts = 6 + Math.floor(Math.random() * 4);
+  const shape = Array.from({length: verts}, (_, i) => {
+    const a = (i / verts) * Math.PI * 2;
+    const r = size * (0.6 + Math.random() * 0.4);
+    return [Math.cos(a)*r, Math.sin(a)*r];
+  });
+  // Random color: grey, brown, or slightly blue-ish
+  const hues = ['rgba(180,170,160', 'rgba(160,140,120', 'rgba(140,150,170', 'rgba(200,195,185'];
+  const color = hues[Math.floor(Math.random()*hues.length)];
+  asteroids.push({ x, y, vx, vy, rot, rotSpeed, shape, color, trail: [] });
+}
+
+function updateAndDrawAsteroids() {
+  asteroidTimer++;
+  // Random spawn: base interval + random delay
+  if (asteroidTimer > ASTEROID_INTERVAL + Math.random() * 120) {
+    spawnAsteroid();
+    if (Math.random() < 0.3) spawnAsteroid(); // occasionally double spawn
+    asteroidTimer = 0;
+  }
+
+  const W = canvas.width, H = canvas.height;
+  for (let i = asteroids.length - 1; i >= 0; i--) {
+    const a = asteroids[i];
+    a.x += a.vx; a.y += a.vy; a.rot += a.rotSpeed;
+
+    // Trail
+    a.trail.push({x: a.x, y: a.y, age: 0});
+    if (a.trail.length > 8) a.trail.shift();
+    for (const t of a.trail) t.age++;
+
+    // Remove if out of bounds
+    if (a.x < -100 || a.x > W+100 || a.y < -100 || a.y > H+100) {
+      asteroids.splice(i, 1); continue;
+    }
+
+    // Draw trail
+    for (let j = 0; j < a.trail.length; j++) {
+      const tp = a.trail[j];
+      const alpha = (j / a.trail.length) * 0.25;
+      ctx.beginPath(); ctx.arc(tp.x, tp.y, 1.5, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(200,190,170,${alpha})`; ctx.fill();
+    }
+
+    // Draw asteroid body
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate(a.rot);
+    ctx.beginPath();
+    ctx.moveTo(a.shape[0][0], a.shape[0][1]);
+    for (let v = 1; v < a.shape.length; v++) ctx.lineTo(a.shape[v][0], a.shape[v][1]);
+    ctx.closePath();
+    ctx.fillStyle = `${a.color},0.85)`;
+    ctx.strokeStyle = `${a.color},0.4)`;
+    ctx.lineWidth = 0.8; ctx.fill(); ctx.stroke();
+    // Highlight edge
+    ctx.beginPath();
+    ctx.moveTo(a.shape[0][0]*0.5, a.shape[0][1]*0.5);
+    for (let v = 1; v < 3; v++) ctx.lineTo(a.shape[v][0]*0.7, a.shape[v][1]*0.7);
+    ctx.strokeStyle = `rgba(255,255,255,0.15)`; ctx.lineWidth = 0.6; ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ─── SPUTNIK HUB WOBBLE ───────────────────────────────────────────────────────
+let hubWobble = { angle: 0, radius: 0, targetR: 0, dx: 0, dy: 0 };
+let hubWobbleTimer = 0;
+
+function updateHubWobble() {
+  hubWobbleTimer++;
+  // Every 3-6 seconds drift to new spot
+  if (hubWobbleTimer > 180 + Math.floor(Math.random() * 180)) {
+    hubWobble.targetR = 8 + Math.random() * 14;
+    hubWobble.angle = Math.random() * Math.PI * 2;
+    hubWobbleTimer = 0;
+  }
+  // Smoothly lerp offset
+  const targetDx = Math.cos(hubWobble.angle) * hubWobble.targetR;
+  const targetDy = Math.sin(hubWobble.angle) * hubWobble.targetR;
+  hubWobble.dx = lerp(hubWobble.dx, targetDx, 0.012);
+  hubWobble.dy = lerp(hubWobble.dy, targetDy, 0.012);
+  // Small continuous breathing
+  const breathe = Math.sin(frame * 0.018) * 3;
+  return { dx: hubWobble.dx + Math.cos(frame*0.013)*breathe, dy: hubWobble.dy + Math.sin(frame*0.017)*breathe };
+}
+
 // Center hub rotation
 const hubRings = [
   { angle: 0, tilt: 0.3, speed: 0.003 },
@@ -474,7 +581,11 @@ function render() {
   for (let x=0;x<W;x+=60){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
   for (let y=0;y<H;y+=60){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
 
-  const CX = cx(), CY = cy();
+  // Asteroids (drawn before agents, after stars)
+  updateAndDrawAsteroids();
+
+  const wobble = updateHubWobble();
+  const CX = cx() + wobble.dx, CY = cy() + wobble.dy;
 
   // Orbit ring
   const secondaries = agents.filter(a=>a.role!=="primary");
