@@ -13,7 +13,7 @@ function switchTab(t) {
   });
   if (t === "settings") loadCron();
   if (t === "sessions") loadSessions();
-  if (t === "memory") loadMemories(true);
+  if (t === "memory") loadTimeline();
   if (t === "jobs") loadJobs();
   if (t === "stats") loadStats();
 }

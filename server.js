@@ -35,6 +35,7 @@ app.use("/api", require("./routes/stats"));
 app.use("/api", require("./routes/agents"));
 app.use("/api", require("./routes/remind"));
 app.use("/api", require("./routes/command"));
+app.use("/api", require("./routes/health"));
 
 startCleanup();
 

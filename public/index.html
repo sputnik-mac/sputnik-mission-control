@@ -42,6 +42,7 @@
   <button class="tab-btn off" id="tab-jobs" onclick="switchTab('jobs')">🕐 Jobs</button>
   <button class="tab-btn off" id="tab-stats" onclick="switchTab('stats')">📊 Stats</button>
   <button class="tab-btn off" id="tab-sessions" onclick="switchTab('sessions')">🔗 Sessions</button>
+  <a href="/health.html" target="_blank" class="tab-btn off" style="text-decoration:none">🏃 Health</a>
   <button class="tab-btn off" id="tab-settings" onclick="switchTab('settings')">⚙️ Settings</button>
 </div>
 
@@ -98,13 +99,16 @@
 <div id="view-memory" class="hidden flex-1 overflow-y-auto px-5 py-4">
   <div class="max-w-2xl mx-auto w-full space-y-5">
     <!-- Sub-tabs -->
-    <div class="flex gap-2">
+    <div class="flex flex-wrap gap-2">
       <button class="mem-tab on" id="mt-timeline" onclick="switchMemTab('timeline')">📅 Timeline</button>
       <button class="mem-tab off" id="mt-entities" onclick="switchMemTab('entities')">🏷️ Entities</button>
       <button class="mem-tab off" id="mt-decisions" onclick="switchMemTab('decisions')">⚖️ Decisions</button>
+      <button class="mem-tab off" id="mt-health" onclick="switchMemTab('health')">🏃 Health</button>
+      <button class="mem-tab off" id="mt-patterns" onclick="switchMemTab('patterns')">🧩 Patterns</button>
+      <button class="mem-tab off" id="mt-qdrant" onclick="showQdrant()">🔍 AI Memory</button>
     </div>
-    <!-- Qdrant panel -->
-    <div id="mem-qdrant">
+    <!-- Qdrant panel (hidden by default, shown via AI Memory tab) -->
+    <div id="mem-qdrant" class="hidden">
       <div class="flex gap-2 mb-3">
         <input id="mem-search" type="text" placeholder="Поиск по памяти..."
           class="flex-1 glass rounded-xl px-4 py-2 text-sm text-white placeholder-white/25 bg-transparent border-none outline-none"
@@ -120,6 +124,10 @@
     <div id="mem-entities" class="hidden space-y-2"></div>
     <!-- Decisions panel -->
     <div id="mem-decisions" class="hidden space-y-2"></div>
+    <!-- Health panel -->
+    <div id="mem-health" class="hidden"></div>
+    <!-- Patterns panel -->
+    <div id="mem-patterns" class="hidden space-y-2"></div>
   </div>
 </div>
 
