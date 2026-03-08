@@ -1,6 +1,6 @@
 # Agent Dashboard Mode — Specification
 
-**Version:** 3.0  
+**Version:** 4.0  
 **Date:** 2026-03-08  
 **Status:** Ready for Implementation  
 
@@ -61,10 +61,10 @@
     "badge": "💪 On track",
     "xp": 0.65,
     "stats": [
-      { "label": "Sessions", "value": 3,       "unit": "this week", "color": "#f97316" },
-      { "label": "Volume",   "value": 8400,     "unit": "kg total",  "color": "#10b981" },
-      { "label": "Streak",   "value": 12,       "unit": "days",      "color": "#6366f1" },
-      { "label": "Next",     "value": "Today",  "unit": "18:00",     "color": "#f59e0b" }
+      { "label": "Sessions", "value": 3,      "unit": "this week", "color": "#f97316" },
+      { "label": "Volume",   "value": 8400,    "unit": "kg total",  "color": "#10b981" },
+      { "label": "Streak",   "value": 12,      "unit": "days",      "color": "#6366f1" },
+      { "label": "Next",     "value": "Today", "unit": "18:00",     "color": "#f59e0b" }
     ]
   },
   "widgets": [
@@ -111,8 +111,12 @@
       "error": "GitHub API unavailable — showing cached data",
       "data": {
         "items": [
-          { "label": "ray-project/ray #61383", "value": "needs rebase", "status": "warning",
-            "trigger": "What do I need to do to rebase ray-project/ray #61383?" }
+          {
+            "label": "ray-project/ray #61383",
+            "value": "needs rebase",
+            "status": "warning",
+            "trigger": "What do I need to do to rebase ray-project/ray #61383?"
+          }
         ]
       }
     }
@@ -135,8 +139,8 @@
 
 Каждый виджет имеет опциональное поле `error: string | null`.  
 - `null` — данные загружены успешно, виджет рендерится нормально  
-- `string` — показывается предупреждение внутри виджета, остальное содержимое рендерится из кэша или не рендерится  
-- Один упавший виджет **не ронает** весь дашборд
+- `string` — показывается предупреждение внутри виджета, данные рендерятся из кэша  
+- Один упавший виджет **не роняет** весь дашборд
 
 ---
 
@@ -148,11 +152,12 @@
 
 ```
 1. Читает конфиг агента из openclaw.json → получает workspace path
-2. Ищет mapper в workspace агента: {workspace}/dashboard/mapper.js
-3. Если mapper есть → вызывает его, передаёт raw data sources
+2. Ищет mapper: {workspace}/dashboard/mapper.js
+3. Если mapper есть → загружает через dynamic import() (без кэша)
 4. Если mapper нет → возвращает базовый empty payload с meta агента
-5. Обогащает payload общими данными (agent info, last active, model)
-6. Возвращает Universal Dashboard Payload
+5. Вызывает mapper(rawData), получает Universal Dashboard Payload
+6. Обогащает payload общими данными (agentId, last active, model)
+7. Возвращает результат
 ```
 
 ### Адаптеры (Mappers) — изоляция бизнес-логики
@@ -177,63 +182,52 @@
 module.exports = async function mapper(rawData) {
   // rawData содержит:
   // rawData.sqlite    — объект db (better-sqlite3, readonly)
-  // rawData.files     — { [filename]: string } — файлы из workspace
+  // rawData.files     — { [filename]: string } — файлы workspace
   // rawData.agentMeta — { id, name, emoji, model }
   // rawData.env       — переменные окружения (GITHUB_TOKEN и т.д.)
 
-  // Пример: pioneer mapper
   const stateFile = rawData.files["STATE.md"] || "";
   const openPRs = parseStateMd(stateFile);
 
   return {
-    meta: {
-      name: rawData.agentMeta.name,
-      emoji: rawData.agentMeta.emoji,
-      color: "#10b981",
-    },
+    meta: { name: rawData.agentMeta.name, emoji: rawData.agentMeta.emoji, color: "#10b981" },
     hero: {
       title: `${openPRs.length} Open PRs`,
       stats: [
-        { label: "Open PRs",  value: openPRs.length,  color: "#10b981" },
-        { label: "Repos",     value: 3,                color: "#6366f1" },
+        { label: "Open PRs", value: openPRs.length, color: "#10b981" },
+        { label: "Repos",    value: 3,               color: "#6366f1" },
       ]
     },
-    widgets: [
-      {
-        id: "open_prs",
-        type: "list",
-        title: "Open PRs",
-        error: null,
-        data: {
-          items: openPRs.map(pr => ({
-            label: pr.repo,
-            value: pr.status,
-            status: pr.mergeable === "blocked" ? "warning" : "pending",
-            trigger: `What is the current status of PR ${pr.url} and what needs to be done?`
-          }))
-        }
-      }
-    ],
+    widgets: [ /* ... */ ],
     quickQuestions: ["📋 PR Status", "🔍 Find Issue", "🔄 Rebase", "📊 Activity"]
   };
 };
 ```
 
-Сервер (`routes/dashboard.js`) — только оркестратор:
+### ⚠️ Загрузка mapper'а: dynamic import вместо require()
+
+`require()` в Node.js кэширует модуль навсегда. Если агент обновит `mapper.js` в runtime — сервер продолжит использовать старую версию до перезапуска.
+
+**Решение — `dynamic import()` с разрушением кэша:**
 
 ```javascript
+// routes/dashboard.js — оркестратор
 router.get("/agents/:id/dashboard", async (req, res) => {
   const { id } = req.params;
-  const agentMeta = getAgentMeta(id);               // из openclaw.json
+  const agentMeta = getAgentMeta(id);
   const mapperPath = `${agentMeta.workspace}/dashboard/mapper.js`;
 
   let payload;
   if (fs.existsSync(mapperPath)) {
+    // Принудительно сбрасываем кэш перед загрузкой
+    // чтобы получить актуальную версию файла
+    delete require.cache[require.resolve(mapperPath)];
     const mapper = require(mapperPath);
-    const rawData = await collectRawData(agentMeta); // sqlite + files + env
+
+    const rawData = await collectRawData(agentMeta);
     payload = await mapper(rawData);
   } else {
-    payload = buildEmptyPayload(agentMeta);          // graceful fallback
+    payload = buildEmptyPayload(agentMeta);
   }
 
   payload.agentId = id;
@@ -241,12 +235,50 @@ router.get("/agents/:id/dashboard", async (req, res) => {
 });
 ```
 
+> **Примечание:** `delete require.cache` добавляет небольшой overhead (~1–5ms) на re-parse файла при каждом запросе. Это приемлемо для дашборда, который не вызывается чаще раза в минуту. Если производительность станет проблемой — добавить файловый watcher (`fs.watch`) и сбрасывать кэш только при реальном изменении файла.
+
 `collectRawData()` — единственное место, где сервер знает о доступных источниках:
 - SQLite (`personal.sqlite`) — read-only доступ
 - Файлы workspace агента (`STATE.md`, `DASHBOARD.json`, и т.д.)
 - Переменные среды (токены для внешних API)
 
-Добавить нового агента = написать `mapper.js` в его workspace. **Ядро не трогается.**
+### 🔒 Безопасность: Execution Context mappers'ов
+
+`mapper.js` выполняется в том же процессе, что и сервер (`require` = full Node.js context).  
+Это удобно, но открывает вектор атаки если **агент сам** может модифицировать свой mapper.
+
+**Правило безопасности по умолчанию:**
+
+> `mapper.js` пишет только разработчик (человек). AI-агент не имеет права модифицировать файлы в `dashboard/` директории своего workspace.
+
+Это правило фиксируется в `SOUL.md` каждого агента и контролируется на уровне инструкций.
+
+**Если в будущем потребуется AI-генерируемые mapper'ы** — изолировать выполнение через `worker_threads`:
+
+```javascript
+// Будущий вариант (когда AI сможет писать mapper'ы)
+const { Worker } = require("worker_threads");
+
+function runMapperSandboxed(mapperCode, rawData) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(`
+      const { workerData, parentPort } = require("worker_threads");
+      const fn = new Function("rawData", workerData.code);
+      Promise.resolve(fn(workerData.rawData))
+        .then(r => parentPort.postMessage({ ok: true, result: r }))
+        .catch(e => parentPort.postMessage({ ok: false, error: e.message }));
+    `, {
+      eval: true,
+      workerData: { code: mapperCode, rawData },
+      resourceLimits: { maxOldGenerationSizeMb: 32, maxExecutionTimeMs: 5000 }
+    });
+    worker.on("message", msg => msg.ok ? resolve(msg.result) : reject(new Error(msg.error)));
+    worker.on("error", reject);
+  });
+}
+```
+
+**Текущий статус:** mapper'ы пишутся вручную — `worker_threads` не нужен. Зафиксировать как TODO при переходе к AI-authored mappers.
 
 ---
 
@@ -262,7 +294,7 @@ public/
     refresh.js         ← стратегия обновления дашборда
     widgets/
       hero.js          ← Hero Card
-      chart.js         ← Chart.js wrapper
+      chart.js         ← Chart.js wrapper (с click-trigger)
       list.js          ← List (с trigger поддержкой)
       insights.js      ← Insights (positive/attention/critical)
       empty.js         ← Empty state
@@ -274,7 +306,6 @@ public/
 ### engine.js — рендеринг payload
 
 ```javascript
-// engine.js
 function renderDashboard(payload, container) {
   container.innerHTML = "";
   renderHero(payload.hero, payload.meta, container);
@@ -285,14 +316,11 @@ function renderDashboard(payload, container) {
 }
 
 function renderWidget(widget, container) {
-  // Если есть ошибка — рендерим error badge, но не скрываем виджет
   const el = createWidgetShell(widget);
-  if (widget.error) renderErrorBadge(el, widget.error);
-
+  if (widget.error) renderErrorBadge(el, widget.error); // ⚠️ partial failure
   switch (widget.type) {
-    case "chart":   renderChart(el, widget.data);   break;
-    case "list":    renderList(el, widget.data);    break;
-    // ... другие типы
+    case "chart": renderChart(el, widget.data); break;
+    case "list":  renderList(el, widget.data);  break;
   }
   container.appendChild(el);
 }
@@ -300,12 +328,7 @@ function renderWidget(widget, container) {
 
 ### Интерактивность виджетов — Trigger System
 
-**Элементы списков** (`list` виджеты) работают как триггеры чата.
-
-Если у item есть поле `trigger: string` — элемент кликабелен. При клике:
-1. Промпт из `trigger` вставляется в чат-инпут
-2. Автоматически отправляется агенту
-3. Canvas Board обновляется с ответом
+**List items** с полем `trigger` — кликабельны. При клике промпт автоматически отправляется в чат агента:
 
 ```javascript
 // list.js
@@ -315,19 +338,16 @@ function renderList(container, data) {
     if (item.trigger) {
       el.classList.add("clickable");
       el.title = "Click to ask agent";
-      el.addEventListener("click", () => {
-        sendChatMessage(item.trigger); // → chat.js
-      });
+      el.addEventListener("click", () => sendChatMessage(item.trigger));
     }
     container.appendChild(el);
   }
 }
 ```
 
-Визуально: кликабельные items имеют hover-эффект + иконку `→` справа.  
-Механика идентична Quick Questions — просто триггер находится внутри виджета.
+Визуально: hover-эффект + иконка `→` справа. Механика идентична Quick Questions.
 
-**Charts** — клик по точке/бару отправляет контекстный промпт:
+**Charts** — клик по точке/бару генерирует контекстный вопрос:
 
 ```javascript
 // chart.js
@@ -343,48 +363,41 @@ onClick: (event, elements) => {
 
 ## Стратегия обновления UI (Refresh Logic)
 
-WebSockets — Out of Scope. Используется polling + event-driven refresh.
-
-### Триггеры обновления Dashboard Panel
+WebSockets — Out of Scope. Используется event-driven refresh.
 
 | Событие | Действие |
 |---------|----------|
-| Пользователь выбрал агента (`selectAgent`) | Полная загрузка `GET /api/agents/:id/dashboard` |
-| Окно получило фокус (`window focus`) | Тихое обновление, если прошло > 60 сек с последнего |
-| Агент завершил ответ в чате | Лёгкое обновление (только данные, без skeleton) |
-| Пользователь нажал ↻ кнопку | Принудительная полная перезагрузка |
-
-### Реализация (refresh.js)
+| `selectAgent(id)` | Полная загрузка `GET /api/agents/:id/dashboard` |
+| `window focus` | Тихое обновление, если прошло > 60 сек с последнего |
+| `agentChatDone` event | Лёгкое обновление (без skeleton) |
+| Кнопка ↻ | Принудительная полная перезагрузка |
 
 ```javascript
 // refresh.js
 let lastRefresh = 0;
-const STALE_AFTER = 60 * 1000; // 60 секунд
+const STALE_AFTER = 60 * 1000;
 
 async function refreshDashboard(agentId, { force = false, silent = false } = {}) {
-  const now = Date.now();
-  if (!force && now - lastRefresh < STALE_AFTER) return;
-
-  if (!silent) showSkeleton();         // scan-line анимация
+  if (!force && Date.now() - lastRefresh < STALE_AFTER) return;
+  if (!silent) showSkeleton();
   const payload = await fetchDashboard(agentId);
   renderDashboard(payload, dashContainer);
-  lastRefresh = now;
+  lastRefresh = Date.now();
 }
 
-// Триггеры:
 window.addEventListener("focus", () => refreshDashboard(activeAgent, { silent: true }));
 window.addEventListener("agentChatDone", () => refreshDashboard(activeAgent, { silent: true }));
 document.getElementById("refresh-btn").onclick = () => refreshDashboard(activeAgent, { force: true });
 ```
 
-`agentChatDone` — custom event, который диспатчится в `chat.js` при получении финального ответа.
+`agentChatDone` — custom event, диспатчится в `chat.js` при получении финального ответа агента.
 
 ---
 
 ## Canvas Board
 
 Универсальный live-компонент. Работает у **всех** агентов одинаково.  
-Встроен в правую (Chat) панель, ниже последнего сообщения.
+Встроен в правую (Chat) панель, под последним сообщением.
 
 ### Как работает
 
@@ -413,13 +426,48 @@ flowchart LR
 
 ### Персистентность Canvas
 
-Canvas-блоки **сохраняются как часть сообщения** в истории чата.  
-При загрузке истории сессии (`/api/chat/history`) — Canvas заново рендерится из сохранённого HTML/JSON.
+Canvas-блоки сохраняются как часть истории чата и **заново рендерятся при загрузке сессии**.
 
-Реализация:
-- `<CANVAS>` блок парсится и заменяется на `<div class="canvas-rendered" data-canvas='...'>` при сохранении
-- При рендере истории — `canvas.js` находит эти div'ы и рендерит их заново
-- Нет зависимости от внешних данных — всё что нужно хранится в `data-canvas`
+**Проблема:** хранить сложный JSON в HTML-атрибуте `data-canvas='...'` ненадёжно — кавычки, переносы строк и HTML-символы в данных неизбежно ломают атрибут.
+
+**Решение — Base64 + скрытый `<script>` тег:**
+
+```javascript
+// canvas.js — сохранение при рендере
+function serializeCanvas(type, title, rawContent) {
+  const payload = JSON.stringify({ type, title, content: rawContent });
+  const b64 = btoa(unescape(encodeURIComponent(payload))); // UTF-8 safe Base64
+
+  return `
+    <div class="canvas-rendered">
+      <script type="application/json" class="canvas-data">
+        ${payload}
+      </script>
+      <!-- визуальный контент рендерится сюда -->
+    </div>`;
+}
+
+// canvas.js — восстановление при загрузке истории
+function rehydrateCanvases(container) {
+  container.querySelectorAll(".canvas-rendered").forEach(el => {
+    const scriptEl = el.querySelector("script.canvas-data");
+    if (!scriptEl) return;
+    try {
+      const data = JSON.parse(scriptEl.textContent);
+      renderCanvasContent(el, data); // рендерит поверх saved div'а
+    } catch (e) {
+      el.innerHTML = `<div class="canvas-error">⚠️ Canvas data corrupted</div>`;
+    }
+  });
+}
+```
+
+> **Почему `<script type="application/json">`:**  
+> Браузер не исполняет такой тег, но его содержимое доступно через `.textContent`.  
+> Это стандартная практика для встраивания структурированных данных в HTML (используется в Next.js, Jekyll и др.).  
+> Никаких проблем с экранированием кавычек или переносов строк.
+
+При загрузке истории `chat.js` вызывает `rehydrateCanvases(messageContainer)` — все Canvas-блоки восстанавливаются автоматически.
 
 ---
 
@@ -430,12 +478,11 @@ Canvas-блоки **сохраняются как часть сообщения*
 ### На сервере (в mapper.js)
 
 ```javascript
-// Паттерн в каждом mapper'е
 let prData, error = null;
 try {
-  prData = await fetchGitHubPRs(env.GITHUB_TOKEN);
+  prData = await fetchGitHubPRs(rawData.env.GITHUB_TOKEN);
 } catch (e) {
-  prData = loadCachedPRs(); // из STATE.md
+  prData = parseCachedPRs(rawData.files["STATE.md"]);
   error = `GitHub API unavailable — showing cached data (${e.message})`;
 }
 
@@ -443,24 +490,15 @@ widgets.push({
   id: "open_prs",
   type: "list",
   title: "Open PRs",
-  error,            // null если всё ок, строка если ошибка
+  error,   // null = всё ок, string = partial failure
   data: { items: prData }
 });
 ```
 
 ### На клиенте (в engine.js)
 
-```javascript
-// Виджет с ошибкой рендерится, но с предупреждением
-if (widget.error) {
-  renderErrorBadge(widgetEl, widget.error);
-  // ⚠️ GitHub API unavailable — showing cached data
-}
-// Контент всё равно рендерится (из кэша/частичных данных)
-renderWidgetContent(widgetEl, widget);
-```
-
-Визуально: жёлтая полоска `⚠️` сверху виджета с текстом ошибки. Данные из кэша видны.
+Виджет с ошибкой рендерится, но с жёлтым предупреждением `⚠️` сверху.  
+Данные из кэша остаются видны — пользователь видит актуальную информацию с пометкой об источнике.
 
 ---
 
@@ -469,12 +507,12 @@ renderWidgetContent(widgetEl, widget);
 ### 🛰️ `main` — Sputnik (System)
 **mapper.js:** агрегирует `/api/status` + `/api/stats` + `/api/sessions`  
 **Hero stats:** Uptime · Sessions · Memories · Cron jobs  
-**Widgets:** Message activity chart, Active sessions list, Recent cron runs list  
+**Widgets:** Message activity chart, Active sessions list, Recent cron runs list
 
 ### 🔭 `pioneer` — Pioneer (GitHub)
 **mapper.js:** парсит `STATE.md` + вызывает `gh` CLI  
 **Hero stats:** Open PRs · Repos watched · Last PR · Merged 30d  
-**Widgets:** PRs list (с trigger на каждый PR), Activity chart  
+**Widgets:** PRs list (каждый PR — trigger), Activity chart  
 **Quick Q:** `📋 PR Status` · `🔍 Find Issue` · `🔄 Rebase` · `📊 Activity`
 
 ### 💰 `finance` — Vault (Finance)
@@ -499,8 +537,8 @@ renderWidgetContent(widgetEl, widget);
 
 ## Цветовая схема
 
-Цвет агента берётся из `mapper.js` → `meta.color`.  
-Если mapper нет — из `DASHBOARD.json` → если нет — **генерируется детерминированно из `agentId` hash**:
+Цвет берётся из `mapper.js → meta.color`.  
+Fallback: `DASHBOARD.json → color` → **auto из `agentId` hash:**
 
 ```javascript
 function agentColor(id) {
@@ -524,7 +562,7 @@ function agentColor(id) {
 
 1. Добавить в `openclaw.json` → агент появится в sidebar
 2. Создать `{workspace}/dashboard/mapper.js` → дашборд получит данные
-3. (Опционально) создать `{workspace}/dashboard/DASHBOARD.json` → seed данные / конфиг
+3. (Опционально) `{workspace}/dashboard/DASHBOARD.json` → seed данные / конфиг
 
 **Изменения в ядре:** ноль.
 
@@ -552,7 +590,8 @@ function agentColor(id) {
 - Drag-and-drop виджеты / кастомизация layout
 - Mobile layout
 - Dashboard builder UI
+- AI-authored mappers (нужен `worker_threads` sandbox — см. раздел безопасности)
 
 ---
 
-*Spec v3.0 by Sputnik 🛰️ | sputnik-mission-control*
+*Spec v4.0 by Sputnik 🛰️ | sputnik-mission-control*
